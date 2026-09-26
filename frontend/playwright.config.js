@@ -39,6 +39,8 @@ export default defineConfig({
     { name: 'voice', testMatch: /voice\.spec\.js/, use: { launchOptions: { args: [...fakeCam('face.y4m'), ...fakeMic('question.wav')] } } },
     { name: 'two-faces', testMatch: /two-faces\.spec\.js/, use: { launchOptions: { args: fakeCam('two_faces.y4m') } } },
     { name: 'no-face', testMatch: /no-face\.spec\.js/, use: { launchOptions: { args: fakeCam(null) } } },
+    // the utility-coordination analysis on the synthetic TEST fixtures (no camera, no network)
+    { name: 'analysis', testMatch: /analysis\.spec\.js/ },
     // no fake-ui flag → the permission prompt is refused → "permission denied" path
     { name: 'denied', testMatch: /denied\.spec\.js/, use: { launchOptions: { args: ['--use-fake-device-for-media-stream', '--deny-permission-prompts'] } } },
     // a browser reaching the presenter's PC through Cloudflare Tunnel: the headers Cloudflare adds
@@ -56,7 +58,11 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 90_000,
-    // the access key only matters for the "remote" project; local browsers never need it
-    env: { EH_MOCK_LLM_DELAY_S: '0.01', EH_LOG_LEVEL: 'warning', EH_ACCESS_KEY: 'e2e-access-key-not-a-secret' },
+    // the access key only matters for the "remote" project; local browsers never need it.
+    // The analysis reads the labelled synthetic TEST fixtures, never the county's services.
+    env: {
+      EH_MOCK_LLM_DELAY_S: '0.01', EH_LOG_LEVEL: 'warning', EH_ACCESS_KEY: 'e2e-access-key-not-a-secret',
+      EH_COORD_OFFLINE_DIR: path.join(here, '..', 'backend', 'tests', 'fixtures', 'coord'),
+    },
   },
 })

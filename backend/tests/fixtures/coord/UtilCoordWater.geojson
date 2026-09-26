@@ -1,0 +1,275 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.25,
+       25.769949999999998
+      ],
+      [
+       -80.24,
+       25.769949999999998
+      ],
+      [
+       -80.24,
+       25.77005
+      ],
+      [
+       -80.25,
+       25.77005
+      ],
+      [
+       -80.25,
+       25.769949999999998
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 1,
+    "PRJNAME": "TEST W1 water main replacement",
+    "PROJECTID": "TW-100",
+    "PRJSCOPE": "TEST fixture \u2014 TEST W1 water main replacement",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Water",
+    "GENPRJSTAT": "Design",
+    "AGYPRJSTAT": "Design",
+    "STARTDATE": 1790812800000,
+    "ENDDATE": 1814313600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.25,
+       25.77095
+      ],
+      [
+       -80.24,
+       25.77095
+      ],
+      [
+       -80.24,
+       25.771050000000002
+      ],
+      [
+       -80.25,
+       25.771050000000002
+      ],
+      [
+       -80.25,
+       25.77095
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 2,
+    "PRJNAME": "TEST W2 finished water main",
+    "PROJECTID": "TW-101",
+    "PRJSCOPE": "TEST fixture \u2014 TEST W2 finished water main",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Water",
+    "GENPRJSTAT": "Complete",
+    "AGYPRJSTAT": "Completed",
+    "STARTDATE": 1704067200000,
+    "ENDDATE": 1798761600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.25,
+       25.768949999999997
+      ],
+      [
+       -80.24,
+       25.768949999999997
+      ],
+      [
+       -80.24,
+       25.76905
+      ],
+      [
+       -80.25,
+       25.76905
+      ],
+      [
+       -80.25,
+       25.768949999999997
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3,
+    "PRJNAME": "TEST W3 ended water main",
+    "PROJECTID": "TW-102",
+    "PRJSCOPE": "TEST fixture \u2014 TEST W3 ended water main",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Water",
+    "GENPRJSTAT": "Construction",
+    "AGYPRJSTAT": "Construction",
+    "STARTDATE": 1672531200000,
+    "ENDDATE": 1735689600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.405,
+       25.59995
+      ],
+      [
+       -80.395,
+       25.59995
+      ],
+      [
+       -80.395,
+       25.600050000000003
+      ],
+      [
+       -80.405,
+       25.600050000000003
+      ],
+      [
+       -80.405,
+       25.59995
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 4,
+    "PRJNAME": "TEST W4 joint water part",
+    "PROJECTID": "TJ-500",
+    "PRJSCOPE": "TEST fixture \u2014 TEST W4 joint water part",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Water",
+    "GENPRJSTAT": "Planning",
+    "AGYPRJSTAT": "Planning",
+    "STARTDATE": 1798761600000,
+    "ENDDATE": 1830297600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.26,
+       25.769949999999998
+      ],
+      [
+       -80.2502,
+       25.769949999999998
+      ],
+      [
+       -80.2502,
+       25.77005
+      ],
+      [
+       -80.26,
+       25.77005
+      ],
+      [
+       -80.26,
+       25.769949999999998
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 5,
+    "PRJNAME": "TEST W5 water main west",
+    "PROJECTID": "TW-103",
+    "PRJSCOPE": "TEST fixture \u2014 TEST W5 water main west",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Water",
+    "GENPRJSTAT": "Design",
+    "AGYPRJSTAT": "Design",
+    "STARTDATE": 1790812800000,
+    "ENDDATE": 1814313600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.395,
+       25.59995
+      ],
+      [
+       -80.385,
+       25.59995
+      ],
+      [
+       -80.385,
+       25.600050000000003
+      ],
+      [
+       -80.395,
+       25.600050000000003
+      ],
+      [
+       -80.395,
+       25.59995
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 6,
+    "PRJNAME": "TEST W4 joint water part",
+    "PROJECTID": "TJ-500",
+    "PRJSCOPE": "TEST fixture \u2014 TEST W4 joint water part",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Water",
+    "GENPRJSTAT": "Planning",
+    "AGYPRJSTAT": "Planning",
+    "STARTDATE": 1798761600000,
+    "ENDDATE": 1830297600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  }
+ ]
+}

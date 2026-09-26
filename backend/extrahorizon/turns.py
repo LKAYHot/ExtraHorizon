@@ -24,10 +24,15 @@ from typing import Any, Protocol
 
 import anyio
 
+from .coord.report import grounding_check
 from .llm import BaseLLM, LLMError, StreamInfo, map_openai_error
 from .sessions import ChatCancelled, ChatPlan, Session
 from .voice.fish import TtsEngine, TtsError
 from .voice.splitter import TtsSplitter
+
+HEARTBEAT_S = 5.0  # an analysis waiting on the county's services still sends progress this often
+REPORT_CUT_NOTE = ("\n\n*(The written report stops here: it reached its length limit. The map and the "
+                   "Findings tab list every finding.)*")
 
 log = logging.getLogger("extrahorizon.turns")
 
@@ -69,7 +74,8 @@ async def _next_or_cancel(agen: AsyncIterator[Any], timeout: float, cancel: asyn
 class Speaker:
     """Streams one reply to Fish and its audio to the learner's browser."""
 
-    def __init__(self, tts: TtsEngine, sink: AudioSink, plan: ChatPlan, settings: Any, session: Session) -> None:
+    def __init__(self, tts: TtsEngine, sink: AudioSink, plan: ChatPlan, settings: Any, session: Session,
+                 first_paragraph_only: bool = False) -> None:
         self.tts = tts
         self.sink = sink
         self.plan = plan
@@ -83,6 +89,10 @@ class Speaker:
         self.began = False  # answer audio has been sent to the browser
         self.first_audio_ms: int | None = None
         self._t0 = time.monotonic()
+        # analysis reports: only the spoken summary (the first paragraph) is voiced
+        self.first_paragraph_only = first_paragraph_only
+        self._said = ""
+        self._closed = False
 
     async def start(self) -> bool:
         try:
@@ -104,15 +114,33 @@ class Speaker:
         return True
 
     async def feed(self, delta: str) -> None:
-        if self.ok and not self.aborted:
-            for chunk in self.splitter.feed(delta):
-                await self.tts_session.send(chunk)  # type: ignore[union-attr]
+        if not self.ok or self.aborted or self._closed:
+            return
+        if self.first_paragraph_only:
+            text = self._said + delta
+            cut = text.find("\n", 12)  # any new line (a heading, a list, a table) ends the spoken summary
+            if cut >= 0:  # the written report starts here: say the summary and stop
+                delta = text[len(self._said):cut]
+                self._said = text[:cut]
+                for chunk in self.splitter.feed(delta):
+                    await self.tts_session.send(chunk)  # type: ignore[union-attr]
+                await self._close_voice()
+                return
+            self._said = text
+        for chunk in self.splitter.feed(delta):
+            await self.tts_session.send(chunk)  # type: ignore[union-attr]
+
+    async def _close_voice(self) -> None:
+        self._closed = True
+        if self.first_paragraph_only:
+            self.plan.voice_done = True  # the rest of the report is written silently
+        for chunk in self.splitter.flush():
+            await self.tts_session.send(chunk)  # type: ignore[union-attr]
+        await self.tts_session.finish()  # type: ignore[union-attr]
 
     async def finish(self) -> None:
-        if self.ok and not self.aborted:
-            for chunk in self.splitter.flush():
-                await self.tts_session.send(chunk)  # type: ignore[union-attr]
-            await self.tts_session.finish()  # type: ignore[union-attr]
+        if self.ok and not self.aborted and not self._closed:
+            await self._close_voice()
 
     async def _pump_audio(self) -> None:
         try:
@@ -158,8 +186,9 @@ class Speaker:
 
 class TurnRunner:
     def __init__(self, session: Session, plan: ChatPlan, llm: BaseLLM, settings: Any,
-                 tts: TtsEngine | None = None, sink: AudioSink | None = None) -> None:
+                 tts: TtsEngine | None = None, sink: AudioSink | None = None, coord: Any = None) -> None:
         self.session = session
+        self.coord = coord  # the utility-coordination analysis service (coord/service.py)
         self.plan = plan
         self.llm = llm
         self.s = settings
@@ -219,6 +248,68 @@ class TurnRunner:
             self.session.discard_plan(plan)
             raise ChatCancelled("discarded")
 
+    async def _run_analysis(self) -> None:
+        """An analysis turn: read → verify → compare the utilities' plans, then answer from it."""
+        plan, session = self.plan, self.session
+        put = self._q.put_nowait
+        an = plan.analysis if plan.analysis is not None else {}
+        if not plan.gate.is_set():
+            # asked out loud: run it only once the final transcript confirms the question — a discarded guess
+            # must neither read the county's data nor leave an analysis behind
+            await self._await_release(self.s.stt_final_timeout_s + 5.0)
+        put(("analysis", {"state": "running"}))
+        an["started"] = True
+        report: dict[str, Any]
+        if self.coord is None:
+            report = {"error": "the analysis is not enabled on this server"}
+        else:
+            from .coord.arcgis import SourceError
+
+            params = self.coord.params(session.coord_params)
+            task = asyncio.ensure_future(self.coord.analyze(
+                params, progress=lambda m: put(("analysis", {**m, "state": "progress", "phase": m.get("state")})),
+                refresh=bool(an.get("refresh"))))
+            stop = asyncio.ensure_future(plan.cancel.wait())
+            try:
+                while not task.done() and not stop.done():
+                    await asyncio.wait({task, stop}, timeout=HEARTBEAT_S, return_when=asyncio.FIRST_COMPLETED)
+                    if not task.done() and not stop.done():  # a slow county service: keep the stream alive
+                        put(("analysis", {"state": "progress", "phase": "waiting", "step": "wait"}))
+            finally:
+                stop.cancel()
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(BaseException):
+                    await task
+                raise ChatCancelled(plan.cancel_reason[0] if plan.cancel_reason else "superseded")
+            try:
+                report = task.result()
+            except SourceError as e:
+                report = {"error": f"the county's data could not be read: {e.message}"}
+            except Exception as e:  # noqa: BLE001 — say it failed; never make up results
+                log.exception("analysis failed")
+                report = {"error": f"the analysis failed on the server ({type(e).__name__})"}
+        if report.get("error"):
+            an["live"] = {"state": "error", "message": report["error"]}
+        else:
+            if session.is_current(plan):
+                session.analysis = report
+            an["report_id"] = report["id"]
+            s = report["summary"]
+            an["live"] = {"state": "ready", "report_id": report["id"], "findings": s["findings"],
+                          "by_category": s["by_category"], "projects": s["projects_verified"],
+                          "plans": s["plans"], "offline": report.get("offline", False)}
+        put(("analysis", an["live"]))
+        plan.llm_messages = session.analysis_messages(plan, report)
+
+    def _analysis_ended(self) -> None:
+        """A turn that started the analysis ends early (stop, a newer question, an error): tell the browser the
+        analysis is not coming, so nothing keeps spinning."""
+        an = self.plan.analysis
+        if an and an.get("started") and not an.get("live"):
+            an["live"] = {"state": "cancelled"}
+            self._q.put_nowait(("analysis", an["live"]))
+
     async def _produce(self) -> None:
         plan, session, llm, s = self.plan, self.session, self.llm, self.s
         put = self._q.put_nowait
@@ -231,13 +322,21 @@ class TurnRunner:
         try:
             if not llm.configured:
                 raise LLMError("llm_not_configured", "OPENAI_API_KEY is not set on the server. Put it in .env and restart.", False)
+            if plan.analysis and plan.analysis.get("mode") == "run":
+                await self._run_analysis()
+            t_llm = time.monotonic()  # the LLM's time budget (and its first-token time) starts after the analysis
+            total_s = s.coord_llm_total_timeout_s if plan.analysis else s.llm_total_timeout_s
             if self.voice:
-                self.speaker = Speaker(self.tts, self.sink, plan, s, session)  # type: ignore[arg-type]
+                self.speaker = Speaker(self.tts, self.sink, plan, s, session,  # type: ignore[arg-type]
+                                       first_paragraph_only=bool(plan.analysis))
                 if not await self.speaker.start():
                     self.speaker = None
-            agen = llm.stream(plan.llm_messages)
+            if plan.analysis:
+                agen = llm.stream(plan.llm_messages, max_tokens=s.coord_max_output_tokens)
+            else:
+                agen = llm.stream(plan.llm_messages)
             while True:
-                budget = t0 + s.llm_total_timeout_s - time.monotonic()
+                budget = t_llm + total_s - time.monotonic()
                 step = s.llm_first_token_timeout_s if ttft is None else s.llm_idle_timeout_s
                 timeout = min(step, budget)
                 if timeout <= 0:
@@ -255,15 +354,23 @@ class TurnRunner:
                     continue
                 if chunk:
                     if ttft is None:
-                        ttft = time.monotonic() - t0
+                        ttft = time.monotonic() - t_llm
                     parts.append(chunk)
                     plan.text_so_far.append(chunk)
                     put(("delta", {"text": chunk}))
                     if self.speaker is not None:
                         await self.speaker.feed(chunk)
+            if plan.analysis and info.finish_reason == "length" and parts:
+                # the written report hit its token budget: say so rather than stop mid-sentence
+                put(("delta", {"text": REPORT_CUT_NOTE}))
+                parts.append(REPORT_CUT_NOTE)
+                plan.text_so_far.append(REPORT_CUT_NOTE)
             text = "".join(parts).strip()
             if not text:
                 raise LLMError("llm_empty", "The model returned an empty answer. Retry.", True)
+            if plan.analysis and plan.analysis_sheet:
+                # every number, date and finding ID she wrote must come from the fact sheet
+                plan.analysis["check"] = grounding_check(text, plan.analysis_sheet)
             if self.speaker is not None:
                 await self.speaker.finish()
             if not plan.gate.is_set():
@@ -277,20 +384,28 @@ class TurnRunner:
             committed = True
             llm.note_ok()
             log.info("turn %s done (%s) ttft=%sms", plan.turn_no, plan.source, done["ttft_ms"])
+            if plan.analysis:
+                done["analysis"] = {k: v for k, v in plan.analysis.items() if k in ("mode", "report_id", "check", "live")}
             put(("done", done))
         except ChatCancelled as c:
             if self.speaker is not None:
                 self.speaker.abort_nowait()
+            if c.code not in ("discarded", "merged"):
+                self._analysis_ended()
             if c.code == "interrupted" and not plan.gate.is_set():
                 # stopped before the question was even confirmed: the learner never saw it
                 put(("dropped", {"reason": "stopped"}))
             elif c.code == "interrupted" and session.is_current(plan):
                 partial = "".join(parts).strip()
                 if partial:
+                    if plan.analysis and plan.analysis_sheet:
+                        plan.analysis["check"] = grounding_check(partial, plan.analysis_sheet)
                     done = session.commit_chat(plan, partial, model=info.model,
                                                ttft_ms=None if ttft is None else int(ttft * 1000),
                                                elapsed_ms=int((time.monotonic() - t0) * 1000), interrupted=True)
                     committed = True
+                    if plan.analysis:
+                        done["analysis"] = {k: v for k, v in plan.analysis.items() if k in ("mode", "report_id", "check", "live")}
                     put(("interrupted", done))
                 else:
                     put(("error", {"code": "interrupted", "message": "Interrupted.", "retryable": True}))
@@ -307,6 +422,7 @@ class TurnRunner:
         except Exception as e:  # noqa: BLE001 — every failure ends the turn with a clear error
             if self.speaker is not None:
                 self.speaker.abort_nowait()
+            self._analysis_ended()
             err = e if isinstance(e, LLMError) else map_openai_error(e)
             llm.note_error(err)
             log.warning("turn %s failed: %s", plan.turn_no, err.code)
@@ -318,4 +434,5 @@ class TurnRunner:
                 with anyio.CancelScope(shield=True):
                     with contextlib.suppress(BaseException):
                         await agen.aclose()  # type: ignore[attr-defined]
+            plan.settled.set()
             put(None)

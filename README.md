@@ -16,6 +16,16 @@ Built for ShellHacks. Stack: **SvelteKit (Svelte 5) → Python FastAPI → OpenA
 transcription) + Fish Audio (drama-3-preview)**, with **MediaPipe**, **EmotiEffLib** and **Silero
 VAD** running on the local CPU.
 
+**Utility-coordination analysis.** Ask her *"Where do the utilities' construction plans overlap?"* (or press
+**Coordination**): ExtraHorizon reads **Miami-Dade County's public Utility Coordination data** live — water, sewer,
+reclaimed water, stormwater, roadway and paving plans of WASD, DTPW and FDOT — **verifies every record** (IDs, dates,
+status, footprint, inside the county; everything excluded is counted by reason), flags where **two utilities'
+future projects are physically close or scheduled around the same time** (so they can share crews, equipment and
+one excavation), **cross-checks** the result against the county's own conflict list, and shows it on a **map**, a
+**findings list** with live re-checks, a **schedule chart** and a **sources & checks** table. Rika explains it out
+loud and in a detailed written report; every number, date and finding ID she writes is checked against the verified
+data. Method, sources and limitations: [docs/ANALYSIS.md](docs/ANALYSIS.md).
+
 ---
 
 ## Quick start (Windows, 3 commands)
@@ -69,7 +79,12 @@ differences (Cloudflare relays the camera and microphone traffic) and troublesho
 4. Pause mid-sentence ("Explain recursion to me… and give an example") — the parts are joined into one question.
 5. Smile or frown clearly for a second → the expression changes in the panel (a small brow twitch or a lowered
    head does not); the next answer's **expression sent** chip shows what went into her prompt.
-6. **New session** clears chat, emotion history and timeline.
+6. **Coordination** (or ask *"Where do the utilities' construction plans overlap?"*) → the analysis runs in a few
+   seconds; the panel switches to the map (blue = the utility network, orange = the road work — or the pair's first and
+   second plan; white = the overlap),
+   opened on the strongest finding; she summarises it aloud and writes the report with finding IDs; **Re-check live**
+   reads a finding's two records from the county again; **Sources & checks** shows every layer's verification.
+7. **New session** clears chat, emotion history, timeline and the analysis.
 
 No camera? Everything still works; the **Demo simulation mode** card drives the same emotion engine with a
 chosen expression — labelled **SIMULATED** everywhere. Full script, fallbacks and honest claims:
@@ -92,6 +107,7 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
 * Components, turn-taking, failure handling: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * Voice pipeline and measured latencies: [docs/VOICE.md](docs/VOICE.md)
 * Emotion method, prompt note, **limitations**: [docs/EMOTIONS.md](docs/EMOTIONS.md)
+* Utility-coordination analysis — sources, verification, method, grounding, **limitations**: [docs/ANALYSIS.md](docs/ANALYSIS.md)
 * What was tested and how: [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md)
 * Everything external (services, models, libraries, assets, AI assistance): [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md)
 
@@ -101,6 +117,8 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
 | `backend/extrahorizon/voice/` | Fish Audio client, fillers, speech-to-text, Silero VAD segmenter, cue handling, splitter, silence cap |
 | `backend/extrahorizon/emotion/` · `vision/` | expression model, per-person calibration, emotion engine · MediaPipe analysis, quality gates, model download |
 | `backend/extrahorizon/context.py` | what the LLM receives: the Rika persona, voice-cue rules, the expression note |
+| `backend/extrahorizon/coord/` | the utility-coordination analysis: sources, ArcGIS client, verification, overlaps, county cross-check, fact sheet + grounding check |
+| `frontend/src/lib/components/AnalysisPanel.svelte` · `Coord*.svelte` | the analysis panel: map (Leaflet), findings, schedules, sources & checks |
 | `backend/extrahorizon/sessions.py` · `app.py` · `vision_ws.py` | sessions/turns/reset · HTTP/SSE/routes · camera socket |
 | `frontend/src/lib/` | app store, voice controller + audio (mic worklet with device choice, player), camera controller, components |
 | `backend/scripts/` | `demo_check.py` (live chain against the running app), `vision_probe.py` (webcam check), `make_fake_camera.py` / `make_fake_mic.py` (test clips) |
@@ -121,7 +139,12 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
   latency, OS/Python version) to Google while a camera session runs — per
   [Google's notice](https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice)
   never images or video. The camera starts only after an explicit click on a card that says so.
-* **Stored:** nothing. Sessions live in memory; *New session* or stopping the backend deletes them.
+* **Utility-coordination analysis** (only when used): the server reads Miami-Dade County's **public** open data
+  from Esri ArcGIS Online (only the queries — nothing about you); **OpenAI** gets the verified public facts about the
+  projects (names, IDs, agencies, statuses, dates, distances, counts — never the contact e-mails or phone numbers in
+  the records); your **browser** loads the map tiles from **OpenStreetMap's** tile servers, which see your IP address.
+* **Stored:** nothing. Sessions live in memory; *New session* or stopping the backend deletes them. The county's
+  public data is kept in memory for 6 h and its last good copy in `backend/cache/coord/` (git-ignored).
 * The API keys live only in the git-ignored `.env`, read by the backend; never sent to the browser or logged.
 * **Remote demo (Cloudflare Tunnel):** camera frames and microphone audio travel from the laptop over HTTPS to
   **Cloudflare**, which decrypts and re-encrypts them into the tunnel to the presenter's PC — analysed there in
@@ -143,7 +166,8 @@ Every threshold and timing is an environment variable (`EH_*`) with defaults in
 `backend/extrahorizon/config.py`; the annotated list is in [.env.example](.env.example) — e.g.
 `EH_VAD_END_SILENCE_MS` (how fast she answers), `EH_BARGE_IN_*` (how easily you interrupt her),
 `EH_VOICE_MERGE_WINDOW_S`, `EH_EMOTION_SENSITIVITY` / `EH_EMOTION_CALIBRATION_S` / other `EH_EMOTION_*`, `EH_FISH_*`,
-and for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`.
+for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`, and for the analysis `EH_COORD_DISTANCE_M`,
+`EH_COORD_WINDOW_DAYS`, `EH_COORD_AREA_M` (also adjustable in the panel), `EH_COORD_CACHE_TTL_S`.
 
 ## Troubleshooting
 
@@ -161,6 +185,8 @@ and for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`.
 | Stuck on *Calibrating…* | look at the screen with a relaxed face and stay quiet ~3 s (talking and a turned head are skipped) |
 | Port 8765 busy | an old backend is still running — stop it (`Get-NetTCPConnection -LocalPort 8765`) |
 | "UI is not built yet" page | `cd frontend && npm run build`, restart the backend |
+| Analysis: a layer "could not be read" / a note about a copy | the county's service did not answer; its last good copy is used and labelled, or the layer is left out and she says so — try **Read the county's data again** later |
+| Analysis map has no streets | the browser cannot reach `tile.openstreetmap.org` (network or firewall); the projects and overlaps still draw |
 
 ## License
 

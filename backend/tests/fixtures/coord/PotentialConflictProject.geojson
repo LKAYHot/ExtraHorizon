@@ -1,0 +1,53 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "OBJECTID": 1,
+    "FACTYPE1": "UtilCoordWater",
+    "AGCYNAME1": "Miami-Dade Water and Sewer Department",
+    "CONFLTID1": "TW-100",
+    "FACTYPE2": "UtilCoordSewer",
+    "AGCYNAME2": "Miami-Dade Water and Sewer Department",
+    "CONFLTID2": "TS-200",
+    "STARTDATE": 1793491200000,
+    "ENDDATE": 1803859200000,
+    "MODIDATE": 1790294400000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "OBJECTID": 2,
+    "FACTYPE1": "UtilCoordRoadway",
+    "AGCYNAME1": "FDOT",
+    "CONFLTID1": "TR-300",
+    "FACTYPE2": "UtilCoordWater",
+    "AGCYNAME2": "Miami-Dade Water and Sewer Department",
+    "CONFLTID2": "TW-101",
+    "STARTDATE": 1830297600000,
+    "ENDDATE": 1877472000000,
+    "MODIDATE": 1790294400000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": null,
+   "properties": {
+    "OBJECTID": 3,
+    "FACTYPE1": "UtilCoordWater",
+    "AGCYNAME1": "Miami-Dade Water and Sewer Department",
+    "CONFLTID1": "TJ-500",
+    "FACTYPE2": "UtilCoordSewer",
+    "AGCYNAME2": "Miami-Dade Water and Sewer Department",
+    "CONFLTID2": "TJ-500",
+    "STARTDATE": 1798761600000,
+    "ENDDATE": 1830297600000,
+    "MODIDATE": 1790294400000
+   }
+  }
+ ]
+}

@@ -203,6 +203,8 @@ export class VisionController {
     if (el && this.#stream) {
       el.srcObject = this.#stream
       el.play().catch(() => {})
+      // the camera panel came back (e.g. after the analysis panel): frames stopped while it was away
+      this.#scheduleFrame()
     }
   }
 

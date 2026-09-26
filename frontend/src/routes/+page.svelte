@@ -4,6 +4,7 @@
   import Sidebar from '$lib/components/Sidebar.svelte'
   import ChatPanel from '$lib/components/ChatPanel.svelte'
   import EmotionPanel from '$lib/components/EmotionPanel.svelte'
+  import AnalysisPanel from '$lib/components/AnalysisPanel.svelte'
   import Toasts from '$lib/components/Toasts.svelte'
   import AccessGate from '$lib/components/AccessGate.svelte'
 
@@ -60,10 +61,10 @@
 </script>
 
 {#if app.accessState === 'ok'}
-  <div class="shell">
+  <div class="shell" class:wide={app.view === 'analysis'}>
     <Sidebar />
     <ChatPanel />
-    <EmotionPanel />
+    {#if app.view === 'analysis'}<AnalysisPanel />{:else}<EmotionPanel />{/if}
   </div>
 {:else}
   <AccessGate />
@@ -78,8 +79,11 @@
     grid-template-columns: var(--side-w) minmax(0, 1fr) var(--vision-w);
     min-width: 0;
   }
+  /* the analysis (map, timeline, findings) needs more room than the camera panel */
+  .shell.wide { grid-template-columns: var(--side-w) minmax(340px, 0.85fr) minmax(480px, 1.15fr); }
   @media (max-width: 1199px) {
     .shell { grid-template-columns: minmax(0, 1fr) var(--vision-w); grid-template-rows: auto minmax(0, 1fr); }
+    .shell.wide { grid-template-columns: minmax(320px, 0.8fr) minmax(440px, 1.2fr); }
     .shell > :global(.sidebar) { grid-column: 1 / -1; }
   }
   @media (max-width: 859px) {

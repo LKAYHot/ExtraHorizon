@@ -24,7 +24,9 @@ model only gets a few words like *"the learner looks mostly anxious; frowning"*.
 | 0:30 | **"Can you give me… (pause) …a simpler example?"** | "I paused mid-sentence — it waited and joined both parts." |
 | 0:45 | Frown clearly / smile; point at the panel and **What Rika is told** | "This exact sentence is all the model gets about my face — no numbers, no images. A tiny brow twitch doesn't count; a real frown does, and she slows down." |
 | 1:00 | Open an answer's **expression sent** chip | "Every answer shows what went into its prompt." |
-| 1:10 | **New session** | "Clean slate for the next person." |
+| 1:10 | **"Where do the utilities' construction plans overlap?"** | "Second skill: she reads Miami-Dade's public utility plans live, verifies every record and flags where two utilities will dig near each other at the same time." |
+| 1:20 | The map opens on F1 (blue sewer main × orange state road, white overlap); **Sources & checks** | Read the tiles aloud (on 2026-09-26: "2,815 records read, 386 verified future projects, every exclusion counted — and 64 of our 80 intersecting pairs are on the county's own conflict list"). "Every number she wrote is checked against this data." |
+| 1:30 | **New session** | "Clean slate for the next person." |
 
 If the camera misbehaves: say so, open **Demo simulation mode** (labelled SIMULATED / NOT LIVE everywhere) and pick
 an expression — the same engine → note → answer chain. Never present simulation as recognition. If the Wi-Fi dies:
@@ -43,6 +45,11 @@ an expression — the same engine → note → answer chain. Never present simul
 * Google's MediaPipe library sends Google anonymous usage metrics while the camera is on; per Google never images.
 * Facial-expression estimates are imperfect and biased; calibration removes one person's resting-face bias, not
   every error. An expression is not a feeling.
+* Utility-coordination analysis: public Miami-Dade County data, read live and verified; the overlaps are measured, the
+  suggested ways to coordinate are general practice, not the agencies' decisions; dates are plans and change. Power,
+  gas and telecom layers are published but empty today, so the utilities compared are WASD's and DTPW's networks
+  against each other and against FDOT/DTPW road work. Her report's figures are checked against the verified data.
+  The map tiles come from OpenStreetMap's servers.
 * **Remote demo (the PC at home, the laptop on stage):** say it plainly — "the heavy lifting runs on my PC at home;
   this laptop just streams the camera and microphone to it over HTTPS through Cloudflare Tunnel". Then the video does
   *not* stay on the laptop: it goes through Cloudflare to the PC, is analysed there in memory and discarded — the app
@@ -69,5 +76,7 @@ an expression — the same engine → note → answer chain. Never present simul
 5. Voice in the venue: choose the right microphone in the app (not the webcam's); headphones or moderate speaker
    volume; test barge-in and a mid-sentence pause; if she
    interrupts herself, raise `EH_BARGE_IN_THRESHOLD`; if she cuts you off, raise `EH_VAD_END_SILENCE_MS`.
-6. Walk through the manual rows still marked *not tested* in docs/TEST_MATRIX.md and update them.
-7. Rehearse the script 3× with a timer; **New session** between runs.
+6. Utility-coordination analysis on the venue network: ask the question once (the county's data is then cached for
+   6 h); check the map tiles load; the panel's **Read the county's data again** refreshes before the show.
+7. Walk through the manual rows still marked *not tested* in docs/TEST_MATRIX.md and update them.
+8. Rehearse the script 3× with a timer; **New session** between runs.

@@ -31,6 +31,35 @@ export async function logout() {
   return jsonOrThrow(res)
 }
 
+// ------------------------------------------------------------------ utility-coordination analysis
+export async function coordCatalog() {
+  return jsonOrThrow(await fetch('/api/coord/catalog', { cache: 'no-store' }))
+}
+
+/** Run (or re-run with other thresholds) the analysis for this session; returns the report. */
+export async function coordAnalyze(sessionId, params = {}) {
+  const res = await fetch('/api/coord/analyze', {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ session_id: sessionId, ...params }),
+  })
+  return jsonOrThrow(res)
+}
+
+export async function coordReport(sessionId) {
+  return jsonOrThrow(await fetch(`/api/coord/report?session_id=${sessionId}`, { cache: 'no-store' }))
+}
+
+export async function coordClose(sessionId) {
+  return jsonOrThrow(await fetch(`/api/coord/report?session_id=${sessionId}`, { method: 'DELETE' }))
+}
+
+/** Read both projects of a finding again from the county's service now. */
+export async function coordRecheck(sessionId, findingId) {
+  const res = await fetch('/api/coord/recheck', {
+    method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ session_id: sessionId, finding_id: findingId }),
+  })
+  return jsonOrThrow(res)
+}
+
 export async function getHealth(deep = false, signal) {
   const res = await fetch(`/api/health${deep ? '?deep=1' : ''}`, { cache: 'no-store', signal })
   return jsonOrThrow(res)
@@ -65,7 +94,7 @@ export async function resetSession(sessionId) {
  * HTTP errors, a missing terminal event and a silent connection (idle watchdog)
  * all become onError — the UI can never stay in "thinking".
  */
-export async function streamChat(body, { onMeta, onDelta, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
+export async function streamChat(body, { onMeta, onDelta, onAnalysis, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
   let finished = false
   const finish = (fn, arg) => {
     if (finished) return
@@ -118,6 +147,7 @@ export async function streamChat(body, { onMeta, onDelta, onDone, onInterrupted,
         }
         if (ev.event === 'meta') onMeta?.(data)
         else if (ev.event === 'delta') onDelta?.(data.text ?? '')
+        else if (ev.event === 'analysis') onAnalysis?.(data)
         else if (ev.event === 'done') finish(onDone, data)
         else if (ev.event === 'interrupted') finish(onInterrupted ?? onDone, data)
         else if (ev.event === 'error') finish(onError, data)

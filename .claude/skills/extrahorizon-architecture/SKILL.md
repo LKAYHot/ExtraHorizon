@@ -1,6 +1,6 @@
 ---
 name: extrahorizon-architecture
-description: Architecture map, API/WebSocket contract and non-negotiable invariants of ExtraHorizon (SvelteKit UI ⇄ FastAPI ⇄ OpenAI chat + realtime transcription ⇄ Fish Audio voice; local MediaPipe + expression model + Silero VAD; per-session calibration + emotion engine and voice turn logic). Use this BEFORE changing any message, endpoint, socket event, turn-taking rule, calibration or emotion-engine rule, prompt/persona/context text (what Rika "sees", how she talks), privacy wording or dependency — and whenever you need to know "where does X live", "what does the UI receive", "what is sent to OpenAI / Fish Audio", or when adding a feature (new voice rule, new emotion view, new provider). Also use it when updating EXTERNAL_DEPENDENCIES.md, README or the pitch.
+description: Architecture map, API/WebSocket contract and non-negotiable invariants of ExtraHorizon (SvelteKit UI ⇄ FastAPI ⇄ OpenAI chat + realtime transcription ⇄ Fish Audio voice; local MediaPipe + expression model + Silero VAD; per-session calibration + emotion engine and voice turn logic). Use this BEFORE changing any message, endpoint, socket event, turn-taking rule, calibration or emotion-engine rule, prompt/persona/context text (what Rika "sees", how she talks), privacy wording or dependency — and whenever you need to know "where does X live", "what does the UI receive", "what is sent to OpenAI / Fish Audio", or when adding a feature (new voice rule, new emotion view, new provider). Also use it when updating EXTERNAL_DEPENDENCIES.md, README or the pitch. For the utility-coordination analysis (coord/, the map panel) also load extrahorizon-coord-analysis.
 ---
 
 # ExtraHorizon architecture & contract
@@ -15,6 +15,9 @@ mic (chosen device) → AudioWorklet PCM16 24 kHz ─WS /api/live─► LiveConn
                                           → TurnRunner → LLM stream ──────────────────────────────────────────► gpt-6-luna
                                           → Speaker → TtsSplitter → FishSession ──────────────────────────────► Fish drama-3-preview
 typed chat ──POST /api/chat (SSE)──────► same TurnRunner (voice goes to the live socket if open)
+analysis turn (question / button) ──────► TurnRunner._run_analysis → CoordService (ArcGIS REST ◄──────────────────── Miami-Dade open data)
+  analysis events, map/findings ◄──────── → verify → overlaps → county cross-check → fact sheet → LLM → grounding check
+  (browser loads map tiles directly from tile.openstreetmap.org)
 ```
 
 Source of truth for every message: **`docs/CONTRACT.md`** — change it first, then both sides, then the tests
@@ -38,6 +41,7 @@ Source of truth for every message: **`docs/CONTRACT.md`** — change it first, t
 | HTTP routes, SSE, origin/host guards, static UI | `backend/extrahorizon/app.py` |
 | Vision socket (latest-frame-wins, single writer) | `backend/extrahorizon/vision_ws.py` |
 | Remote access: transport (local/cloudflare/proxy/network), access key, cookie, brute-force brake, guard | `backend/extrahorizon/access.py` · `/api/access` in `app.py` · `AccessGate.svelte` · `scripts/demo-host.ps1` |
+| Utility-coordination analysis: sources, ArcGIS client, verification, overlaps, cross-check, fact sheet + grounding, service, intent | `backend/extrahorizon/coord/*.py` · `/api/coord/*` in `app.py` · `AnalysisPanel.svelte`, `Coord*.svelte`, `coord.js` · docs/ANALYSIS.md · skill `extrahorizon-coord-analysis` |
 | Styled select (combobox + listbox, keyboard, portal) | `frontend/src/lib/components/Select.svelte` (used by Subject and the microphone picker) |
 | UI state (the only store) · camera + calibration/sensitivity · voice + audio + microphone choice | `frontend/src/lib/app.svelte.js` · `vision.svelte.js` · `voice.svelte.js` + `audio.js` (`MicCapture`) |
 | Emotion colours/orders (validated palette) · voice cues in markdown | `frontend/src/lib/emotions.js` · `cues.js` + `markdown.js` |
@@ -60,6 +64,7 @@ Source of truth for every message: **`docs/CONTRACT.md`** — change it first, t
 11. **Simulation is labelled** (SIMULATED / NOT LIVE, striped card, marked spans) and allowed only in that mode / tests.
 12. **Secrets**: keys live only in the git-ignored `.env`; hooks in `.githooks/` + `tests/test_secrets.py` block commits/pushes of keys or their values. Never print, log or return a key; check with `len(...)` only.
 13. **Remote access** (`access.py`, docs/REMOTE_DEMO.md): the server binds to loopback; "local" = loopback peer **and** no proxy header **and** loopback Host (tunnel requests come from 127.0.0.1 too). Every non-local `/api/*` request and both sockets need the signed access cookie (`POST /api/access` with `EH_ACCESS_KEY`); no key configured → remote refused. The UI shell stays public for the key prompt. Remote privacy wording names Cloudflare; the "stays on this device" claim is local-only.
+14. **Analysis facts are verified and grounded** (docs/ANALYSIS.md): every record verified or excluded with a counted reason; she states only the fact sheet (no arithmetic, no contact data) and every analysis answer gets the grounding check; failures and saved copies are said, never guessed; TEST fixtures are labelled everywhere and tests never contact the county; project IDs (never object IDs) identify records across reads.
 
 ## When you add or change a dependency, model, dataset, asset, service or AI tool
 

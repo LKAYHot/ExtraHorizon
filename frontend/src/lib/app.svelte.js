@@ -1,5 +1,6 @@
 import * as api from './api.js'
 import { probsArray } from './emotions.js'
+import { orderPair } from './coord.js'
 import { isLoopbackHost } from './format.js'
 import { claimSessionId, getSessionId, readPref, writePref } from './session.js'
 import { VisionController } from './vision.svelte.js'
@@ -38,6 +39,11 @@ class AppState {
   vision = new VisionController(this)
   voice = new VoiceController(this)
 
+  // utility-coordination analysis (coord/): the right panel shows it instead of the camera
+  view = $state('tutor') // tutor | analysis
+  coord = $state({ state: 'idle', error: '', steps: [], selected: null, pair: null, rechecks: {}, busy: false })
+  coordReport = $state.raw(null) // the verified report (projects, findings, sources) — large, not deep-reactive
+
   // remote access (e.g. the presenter's PC behind Cloudflare Tunnel): the app starts only once
   // /api/access says this browser may use it — checking | ok | needed | disabled | offline
   access = $state.raw(null)
@@ -50,6 +56,8 @@ class AppState {
   // confirming it sees us on loopback (same rule as the privacy card)
   local = $derived(typeof location !== 'undefined' && isLoopbackHost(location.hostname) && this.vision.clientIsLoopback === true)
   persona = $derived(this.health?.persona ?? this.voice.info?.persona ?? 'Rika')
+  coordEnabled = $derived(this.health?.coord?.enabled !== false) // EH_COORD_ENABLED (on until health says otherwise)
+  #coordGen = 0 // bumped by "New session" / closing: late answers of older requests are dropped
   /** Voice turn in flight (spoken question being answered), newest first. */
   voiceTurnActive = $derived(this.messages.some((m) => m.role === 'assistant' && m.source === 'voice' && (m.status === 'pending' || m.status === 'streaming')))
   /** idle | listening | hearing | thinking | speaking — the tutor's conversational state. */
@@ -117,6 +125,7 @@ class AppState {
     this.#ready = (async () => {
       this.sessionId = await claimSessionId()
       await this.#restore()
+      this.#restoreAnalysis()
       this.#pollHealth(true)
       this.#healthTimer = setInterval(() => this.#pollHealth(false), HEALTH_EVERY_MS)
       this.vision.start()
@@ -186,6 +195,13 @@ class AppState {
     this.timeline = { samples: [], markers: [] }
     this.timelineVersion++
     this.voice.reset()
+    this.#coordGen++
+    this.coordReport = null
+    this.coord.state = 'idle'
+    this.coord.steps = []
+    this.coord.rechecks = {}
+    this.coord.selected = null
+    this.view = 'tutor'
   }
 
   // ------------------------------------------------------------------ vision socket callbacks
@@ -267,12 +283,17 @@ class AppState {
       this.messages.push({
         id: data.assistant_message_id, key: data.assistant_message_id, role: 'assistant', text: '', status: 'streaming',
         source: 'voice', turn_no: turn, model: data.model, emotion_context: data.emotion_context, voice: data.voice,
-        created: Date.now(),
+        analysis: data.analysis ?? null, created: Date.now(),
       })
       return
     }
     const msg = this.#assistantOfTurn(turn)
     if (!msg) return
+    if (event === 'analysis') {
+      msg.analysis = { ...(msg.analysis ?? {}), live: data }
+      this.onAnalysisEvent(data)
+      return
+    }
     if (event === 'delta') {
       this.#pendingText.set(turn, (this.#pendingText.get(turn) ?? '') + (data.text ?? ''))
       this.#scheduleFlush()
@@ -281,14 +302,18 @@ class AppState {
     this.#flushNow()
     if (event === 'done' || event === 'interrupted') {
       msg.status = 'done'
+      if (data.analysis) msg.analysis = { ...(msg.analysis ?? {}), ...data.analysis }
       msg.model = data.model
       msg.ttft_ms = data.ttft_ms
       msg.elapsed_ms = data.elapsed_ms
       msg.interrupted = !!data.interrupted
+      if (event === 'interrupted') this.#analysisTurnEnded(msg)
     } else if (event === 'error') {
       msg.status = 'error'
       msg.error = data
+      this.#analysisTurnEnded(msg)
     } else if (event === 'dropped') {
+      this.#analysisTurnEnded(msg)
       // the learner went on talking: this turn never happened (the next one answers both)
       const i = this.messages.indexOf(msg)
       const start = i > 0 && this.messages[i - 1].role === 'user' ? i - 1 : i
@@ -321,7 +346,7 @@ class AppState {
   }
 
   // ------------------------------------------------------------------ typed chat (SSE)
-  async send(text) {
+  async send(text, { analysis = false } = {}) {
     text = (text ?? '').trim()
     if (!text || this.busy) return false
     this.voice.unlockAudio() // the click/Enter is the user gesture browsers require for audio
@@ -329,8 +354,161 @@ class AppState {
     if (this.busy) return false
     const id = tmpId('u')
     this.messages.push({ id, key: id, role: 'user', text, source: 'text', status: 'done', created: Date.now() })
-    this.#run({ message: text, subject: this.subject })
+    this.#run({ message: text, subject: this.subject, ...(analysis ? { analysis: true } : {}) })
     return true
+  }
+
+  // ------------------------------------------------------------------ utility-coordination analysis
+  /** Ask Rika to run the analysis (she explains it in the chat; the panel shows it). */
+  runAnalysis() {
+    this.view = 'analysis'
+    return this.send('Compare the public construction plans of the utilities in Miami-Dade County and flag where their planned work overlaps.', { analysis: true })
+  }
+
+  /** Server events of an analysis turn: running → progress… → ready | error | cancelled. */
+  onAnalysisEvent(d) {
+    const c = this.coord
+    if (d.state === 'running') {
+      c.state = 'running'
+      c.error = ''
+      c.steps = []
+      this.view = 'analysis'
+    } else if (d.state === 'progress') {
+      c.steps = [...c.steps, d].slice(-60)
+    } else if (d.state === 'ready') {
+      this.#loadReport('ready')
+    } else if (d.state === 'error') {
+      c.state = 'error'
+      c.error = d.message || 'The analysis failed.'
+    } else if (d.state === 'cancelled') {
+      c.state = this.coordReport ? 'ready' : 'idle' // stopped: the panel shows what it had (or the intro)
+      c.steps = []
+    }
+  }
+
+  /** A turn that was running the analysis ended early (Stop, a newer question, an error, a dropped
+   *  voice turn): the card and the panel must not keep spinning. */
+  #analysisTurnEnded(msg) {
+    const st = msg?.analysis?.live?.state
+    if (msg?.analysis?.mode === 'run' && (!st || st === 'running' || st === 'progress')) {
+      msg.analysis = { ...msg.analysis, live: { state: 'cancelled' } }
+      if (this.coord.state === 'running') this.onAnalysisEvent({ state: 'cancelled' })
+    }
+  }
+
+  async #loadReport(state) {
+    const gen = this.#coordGen
+    try {
+      const report = await api.coordReport(this.sessionId)
+      if (gen !== this.#coordGen) return // "New session" / closed meanwhile
+      this.#setReport(report)
+      this.coord.state = state
+    } catch (e) {
+      if (gen !== this.#coordGen) return
+      if (e.status === 404) {
+        if (this.coord.state === 'running') this.coord.state = 'idle'
+      } else {
+        this.coord.state = 'error'
+        this.coord.error = e.message
+      }
+    }
+  }
+
+  /** A new report opens on its strongest finding (the one she names first) and that finding's pair;
+   *  a re-run with other rules keeps the chosen pair (finding IDs are renumbered). */
+  #setReport(report, keepPair = false) {
+    this.coordReport = report
+    this.coord.rechecks = {}
+    const pairs = (report?.pairs ?? []).map((p) => orderPair(p.plans, report).join(' ↔ '))
+    const first = keepPair ? null : (report?.highlights?.[0] ?? report?.findings?.[0]?.id ?? null)
+    this.coord.selected = first
+    const own = first ? this.#pairOf(first) : null
+    if (own) this.coord.pair = own
+    else if (!pairs.includes(this.coord.pair)) this.coord.pair = pairs[0] ?? null
+  }
+
+  /** The pair key (as the pair picker spells it) of a finding. */
+  #pairOf(fid) {
+    const report = this.coordReport
+    const f = report?.findings?.find((x) => x.id === fid)
+    if (!f) return null
+    const want = [...f.plans].sort().join(' ↔ ')
+    const p = report.pairs.find((x) => [...x.plans].sort().join(' ↔ ') === want)
+    return p ? orderPair(p.plans, report).join(' ↔ ') : null
+  }
+
+  choosePair(key) {
+    this.coord.pair = key
+    if (this.coord.selected && this.#pairOf(this.coord.selected) !== key) this.coord.selected = null
+  }
+
+  async #restoreAnalysis() {
+    await this.#loadReport('ready')
+  }
+
+  openAnalysis() {
+    this.view = 'analysis'
+  }
+
+  closeAnalysisView() {
+    this.view = 'tutor'
+  }
+
+  /** Re-run with other thresholds (no chat turn — ask Rika about it afterwards). */
+  async applyCoordParams(params, refresh = false) {
+    const gen = this.#coordGen
+    this.coord.busy = true
+    try {
+      const report = await api.coordAnalyze(this.sessionId, { ...params, refresh })
+      if (gen !== this.#coordGen) return
+      this.#setReport(report, true)
+      this.coord.state = 'ready'
+      this.toast('ok', `Analysis updated: ${report.summary.findings.toLocaleString('en-US')} findings. Ask ${this.persona} about them.`)
+    } catch (e) {
+      if (gen === this.#coordGen) this.toast('error', e.message || 'The analysis could not be updated.')
+    } finally {
+      this.coord.busy = false
+    }
+  }
+
+  async recheckFinding(fid) {
+    const reportId = this.coordReport?.id
+    this.coord.rechecks = { ...this.coord.rechecks, [fid]: { state: 'checking' } }
+    let result
+    try {
+      const r = await api.coordRecheck(this.sessionId, fid)
+      // a record the county's service did not answer for is "could not re-check", not "changed"
+      const unreachable = (r.records ?? []).filter((x) => !x.found && x.error !== 'record no longer published')
+      result = { ...r, state: r.ok ? 'ok' : unreachable.length ? 'unreachable' : 'changed' }
+    } catch (e) {
+      result = { state: 'unreachable', message: e.message }
+    }
+    // "Apply" renumbers the findings: an answer for the old F12 must not land on the new one
+    if (this.coordReport?.id === reportId) this.coord.rechecks = { ...this.coord.rechecks, [fid]: result }
+  }
+
+  selectFinding(fid) {
+    const own = this.#pairOf(fid)
+    if (own && own !== this.coord.pair) this.coord.pair = own
+    this.coord.selected = fid
+    this.view = 'analysis'
+  }
+
+  /** Close the analysis: the server forgets it (her answers are ordinary tutoring again), the camera
+   *  panel comes back. (The header toggle only switches panels and keeps the analysis.) */
+  async closeAnalysis() {
+    this.#coordGen++
+    this.coordReport = null
+    this.coord.state = 'idle'
+    this.coord.steps = []
+    this.coord.rechecks = {}
+    this.coord.selected = null
+    this.view = 'tutor'
+    try {
+      await api.coordClose(this.sessionId)
+    } catch {
+      /* the local view is closed anyway */
+    }
   }
 
   async retry(assistantId) {
@@ -389,6 +567,7 @@ class AppState {
         signal: ctrl.signal,
         onMeta: (meta) => {
           msg.id = meta.assistant_message_id
+          msg.analysis = meta.analysis ?? null
           msg.model = meta.model
           msg.turn_no = meta.turn_no
           msg.voice = meta.voice
@@ -400,9 +579,14 @@ class AppState {
           pending += t
           schedule()
         },
+        onAnalysis: (d) => {
+          msg.analysis = { ...(msg.analysis ?? {}), live: d }
+          this.onAnalysisEvent(d)
+        },
         onDone: (d) => {
           flush()
           msg.status = 'done'
+          if (d.analysis) msg.analysis = { ...(msg.analysis ?? {}), ...d.analysis }
           msg.model = d.model
           msg.ttft_ms = d.ttft_ms
           msg.elapsed_ms = d.elapsed_ms
@@ -414,9 +598,12 @@ class AppState {
           msg.interrupted = true
           msg.model = d.model
           msg.ttft_ms = d.ttft_ms
+          if (d.analysis) msg.analysis = { ...(msg.analysis ?? {}), ...d.analysis }
+          this.#analysisTurnEnded(msg)
         },
         onError: (err) => {
           flush()
+          this.#analysisTurnEnded(msg)
           if (err.code === 'stopped' && msg.text) {
             msg.status = 'done'
             msg.interrupted = true

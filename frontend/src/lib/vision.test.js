@@ -114,6 +114,27 @@ describe('VisionController', () => {
     v.stop()
   })
 
+  it('resumes frames when the camera panel comes back with a new video element', async () => {
+    // found in review: showing the analysis panel unmounts the camera card; frames never resumed
+    const v = new VisionController(makeApp())
+    v.attachVideo(video())
+    v.start()
+    const ws = sockets.at(-1)
+    ws.open()
+    ws.msg(hello)
+    pending.shift()(makeStream('cam'))
+    await settle()
+    expect(ws.frames().length).toBeGreaterThan(0)
+    v.attachVideo(null) // the analysis panel replaces the camera panel
+    ws.msg({ type: 'tick', seq: new DataView(ws.frames().at(-1)).getUint32(0), t: Date.now(), vision: null, emotion: null })
+    await settle()
+    const whileAway = ws.frames().length
+    v.attachVideo(video()) // back: a new <video>
+    await settle()
+    expect(ws.frames().length).toBeGreaterThan(whileAway)
+    v.stop()
+  })
+
   it('resumes frames after a vision error followed by a reconnect', async () => {
     const v = new VisionController(makeApp())
     v.attachVideo(video())

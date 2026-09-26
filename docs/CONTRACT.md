@@ -1,4 +1,4 @@
-# ExtraHorizon — API & message contract (v2.2: calibrated emotions + voice + remote access)
+# ExtraHorizon — API & message contract (v2.3: calibrated emotions + voice + remote access + utility-coordination analysis)
 
 The single source of truth for everything that crosses the frontend ⇄ backend boundary.
 Change it **first**, then both sides, then the tests (`backend/tests/test_api.py`,
@@ -17,6 +17,10 @@ in the demo build FastAPI serves the UI and the API from one origin.
 | `GET  /api/session/{session_id}/state` | restore the view after a refresh |
 | `WS   /api/vision?session_id=…` | camera frames → expression estimates |
 | `WS   /api/live?session_id=…` | the voice conversation (mic in, voice out) |
+| `GET  /api/coord/catalog` | the analysis' sources, rules and status (docs/ANALYSIS.md) |
+| `POST /api/coord/analyze` | run / re-run the analysis for a session (no chat turn) |
+| `GET  /api/coord/report?session_id=…` · `DELETE …` | the session's analysis on screen · close it |
+| `POST /api/coord/recheck` | read one finding's two records again from the county's service |
 
 ## Sessions
 
@@ -58,6 +62,7 @@ in the demo build FastAPI serves the UI and the API from one origin.
              "state": "ok|degraded|down|off", "last_error": null, "warm": 1},
   "stt":    {"provider": "openai", "model": "gpt-live-transcribe", "configured": true, "vad": true, "vad_reason": null},
   "fillers": "idle|preparing|ready|failed",
+  "coord": {"enabled": true, "offline": false},   // the utility-coordination analysis (offline = TEST fixtures)
   "sessions": 1,
   "client": {"transport": "local|cloudflare|proxy|network"}   // how THIS request arrived
 }
@@ -65,8 +70,9 @@ in the demo build FastAPI serves the UI and the API from one origin.
 
 ## `POST /api/chat` → Server-Sent Events
 
-Request: `{"session_id": "…uuid…", "message": "Explain recursion to me.", "subject": "Computer Science"}`
-(`message` 1–4000 chars; `subject` optional). HTTP errors before the stream: `422` with `{"code","message"}`
+Request: `{"session_id": "…uuid…", "message": "Explain recursion to me.", "subject": "Computer Science", "analysis": false}`
+(`message` 1–4000 chars; `subject` optional; `analysis: true` runs the utility-coordination analysis before the
+answer — so does a message that asks for it, see below). HTTP errors before the stream: `422` with `{"code","message"}`
 (e.g. `empty_message`).
 
 | event | data |
@@ -76,6 +82,22 @@ Request: `{"session_id": "…uuid…", "message": "Explain recursion to me.", "s
 | `done` | `{assistant_message_id, finish_reason, ttft_ms, elapsed_ms, model, created, interrupted: false}` — committed to history |
 | `interrupted` | same as `done` with `interrupted: true` — stopped by barge-in / stop; the partial answer is committed and marked |
 | `error` | `{code, message, retryable}` — nothing committed |
+| `analysis` | only in an analysis turn, before the first `delta`: `{state: "running"}` → `{state: "progress", phase, step, source?, title?, records?, message?}` (per layer read and per step; `phase: "waiting"` every 5 s while the county's service is slow) → `{state: "ready", report_id, findings, by_category, projects, plans, offline}` or `{state: "error", message}` (she then says plainly that it failed); `{state: "cancelled"}` when the turn ends before the analysis did (Stop, a newer question, an error) |
+
+**Analysis turns** (docs/ANALYSIS.md §6). `run` (the analysis runs first): `analysis: true`, or — with no analysis
+on screen — a message naming the utilities and asking where they overlap / to compare their plans (English or
+Russian; ordinary tutoring questions never match), or — with one on screen — such a message asking for it *again*.
+`context` (answered from the analysis on screen, no new run): with one on screen, a message about it (a finding or
+project ID, the utilities, overlaps, the map, the county…). Anything else is an ordinary turn. `meta.analysis` =
+`{mode: "run"|"context", report_id|null}` or `null`. Her prompt then holds the **fact sheet** (the only facts she may
+state) and the report rules; `max_completion_tokens` is `EH_COORD_MAX_OUTPUT_TOKENS` (3000), the total time
+`EH_COORD_LLM_TOTAL_TIMEOUT_S` (150 s), and only her first paragraph is voiced (up to the first line break).
+`done.analysis` and `interrupted.analysis` = `{mode, report_id, live?: <the terminal analysis event>, check: {ok,
+checked, unknown: ["2426", "62", "March 5, 2027", "80%", "F999", …]}}` — the grounding check (numbers ≥ 10 and numbers
+with units, dates in any common form, percentages, finding IDs; a number from a project's name or ID only in its
+context) against the sheet; the same object is stored with the assistant message (`live` keeps the result card
+after a reload). A report cut at the length limit ends with a visible note. A spoken analysis question runs the
+analysis only once the final transcript confirms it.
 
 `emotion_context` (also stored with the assistant message): `{available: true, dominant, strength, source: "camera"|"simulation", text, note, unchanged?}` or
 `{available: false, reason, source, text, note: null}`. `note` is **the exact system message** added to the prompt;
@@ -89,7 +111,8 @@ Timeouts: first token ≤ `EH_LLM_FIRST_TOKEN_TIMEOUT_S` (15 s), gap ≤ `EH_LLM
 `EH_LLM_TOTAL_TIMEOUT_S` (60 s); the browser runs its own idle watchdog.
 
 **Sent to the LLM:** the persona prompt, up to 10 previous exchanges (text only), the expression note (when
-available), the per-turn reply rules, the question. Never images, landmarks, probabilities or numbers.
+available), the per-turn reply rules, the question; in analysis turns the fact sheet (public county records — never
+their contact e-mails or phone numbers). Never images, landmarks, probabilities or camera numbers.
 
 ## `POST /api/session/interrupt` · `POST /api/session/reset` · `GET /api/session/{id}/state`
 
@@ -97,7 +120,8 @@ available), the per-turn reply rules, the question. Never images, landmarks, pro
 * reset: `{"session_id"}` → `{"ok": true, "epoch": 3, "boot_id": "…"}` — clears history, emotion engine, timeline,
   stops the voice and cancels a turn in flight; both sockets get `reset` + `snapshot`. Idempotent.
 * state: `{session_id, boot_id, epoch, subject, messages: [...], timeline, emotion}`; messages are
-  `{id, role, text, source, created, model?, ttft_ms?, emotion_context?, interrupted?}`.
+  `{id, role, text, source, created, model?, ttft_ms?, emotion_context?, interrupted?, analysis?}`.
+  Reset also forgets the session's analysis and its rules.
 
 ## `WS /api/vision?session_id=…`
 
@@ -167,8 +191,8 @@ Server → client:
 {"type": "vad", "speaking": false, "utt": 3, "turn_no": 5}
 {"type": "stt", "utt": 3, "text": "Explain recursion", "final": false}             // live transcript of one utterance
 {"type": "heard", "utt": 3, "turn_no": 5, "text": "Explain recursion to me."}      // the whole question (joined)
-{"type": "stt_ignored", "utt": 3, "turn_no": 5, "reason": "empty|echo|stop|stopped", "text": "Wait, stop."}   // stopped: Stop/barge-in/reset came first
-{"type": "turn", "event": "meta|delta|done|interrupted|error|dropped", "turn_no": 5, "data": {…as in SSE…}}  // dropped: {reason: "merged|discarded|stopped"} — remove the turn (it was never heard)
+{"type": "stt_ignored", "utt": 3, "turn_no": 5, "reason": "empty|echo|stop|stopped|backchannel", "text": "Wait, stop."}   // stopped: Stop/barge-in/reset came first; backchannel: "okay"/"угу" while her analysis report is written silently
+{"type": "turn", "event": "meta|analysis|delta|done|interrupted|error|dropped", "turn_no": 5, "data": {…as in SSE…}}  // dropped: {reason: "merged|discarded|stopped"} — remove the turn (it was never heard)
 {"type": "filler", "turn_no": 5, "text": "Hmm..."}
 {"type": "audio_begin", "turn_no": 5, "kind": "filler|answer", "sample_rate": 44100}
 // binary: 4-byte big-endian turn_no + PCM16LE mono audio of that turn (a filler and its answer share the turn number)
@@ -182,6 +206,65 @@ Server → client:
 
 Player rules (browser): frames of the current turn are scheduled back to back; a frame with a newer turn number
 cuts the older turn; frames of a stopped or older turn are dropped; `barge_in` stops everything.
+
+## Utility-coordination analysis (`/api/coord/*`, docs/ANALYSIS.md)
+
+Errors: `404 analysis_disabled` (`EH_COORD_ENABLED=false`), `404 no_analysis`, `404 no_finding`,
+`409 session_reset` (the session was reset while the analysis ran), `422 bad_session_id` / validation,
+`502 analysis_source` (no project layer of the county could be read and no copy exists).
+
+While her analysis report is still being written after the spoken summary, the learner's voice on `/api/live` is
+not a barge-in: a listening noise ("okay", "угу") is ignored (`stt_ignored`, reason `backchannel`); a real question
+ends the report as `interrupted` (the written part kept and grounding-checked) and is answered.
+
+* `GET /api/coord/catalog` → `{region, publisher, status: {enabled, offline, sources, loaded_at}, sources: [{key, title,
+  kind, utility, url, item_url}], conflicts: {key, title, url, item_url}, defaults: {distance_m, window_days, area_m}}`.
+* `POST /api/coord/analyze {"session_id", "refresh"?: bool, "distance_m"?: 0–5000, "window_days"?: 0–3650, "area_m"?: >0–20000}`
+  → the report (rules given here are remembered for the session's later runs — only once they produced an analysis);
+  it becomes the analysis on screen.
+* `GET /api/coord/report?session_id=…` → the analysis on screen · `DELETE` → `{"ok": true}` (answers go back to normal).
+* `POST /api/coord/recheck {"session_id", "finding_id": "F12"}` → `{finding, checked_at, ok, records: [{uid, found,
+  changed: ["status", "end", "no longer passes the checks: <reason>", …], live: {project_id, status, start, end, parts},
+  record_url} | {uid, found: false, error: "record no longer published" | "HTTP 503" …}], distance_m_live?,
+  distance_matches?}` (a record the service did not answer for means "could not re-check", not "changed") — both projects are read again **by
+  project ID** (the county republishes its layers; object IDs change), verified again like the analysis, parts merged.
+  Links (`record_url`, `county.record_url`) are query pages by project ID too.
+
+The report:
+
+```jsonc
+{"id": "3f9c…", "generated_at": "2026-09-26T15:41:02+00:00", "generated_at_local": "2026-09-26 11:41 (UTC−04:00)",
+ "offline": false,                      // true = the synthetic TEST fixtures (EH_COORD_OFFLINE_DIR), labelled everywhere
+ "stale_note": null | "UtilCoordWater: live read failed (…); using the copy read at …",
+ "region": {"name", "center": [lat, lon], "bbox": [w, s, e, n], "check": "the county's boundary" | "a bounding box"},
+ "publisher": "Miami-Dade County (ArcGIS account MDPublisher)",
+ "params": {"distance_m": 150, "window_days": 60, "area_m": 1500, "today": "2026-09-26"},
+ "sources": [{"key", "title", "kind", "url", "item_url", "utility", "reported", "received", "candidates", "verified",
+              "excluded": [{"code", "count", "label"}], "notes": [{"code", "count", "label"}],
+              "checks": [{"code": "publisher|https|schema|complete|fresh", "ok", "detail"}], "last_edit", "fetched_at", "error"}],
+ "conflicts_source": {"key", "title", "url", "item_url", "reported", "received", "error", "last_edit", "checks": [...]},
+ "boundary_source": {"key": "MiamiDadeBoundary", "title", "url", "item_url", "error", "last_edit", "checks": [... "reference"]},
+ "plans": [{"key", "label": "WASD · Water", "agency", "facility", "kind", "utility", "count"}],
+ "summary": {"records_reported", "records_received", "records_excluded", "records_passed", "records_merged",
+             "projects_verified", "excluded": [{"code", "count", "label"}], "findings", "by_category": {"both", "near", "same_time"}, "plans"},
+ "crosscheck": {"county_pairs", "our_intersecting", "our_intersecting_confirmed", "our_intersecting_not_listed",
+                "county_pairs_between_verified_projects", "county_pairs_we_also_flag", "county_pairs_same_project",
+                "county_pairs_we_do_not_flag": [...], "county_pairs_we_do_not_flag_count",
+                "county_pairs_with_excluded_project": {"<reason>": n},    // a pair with two excluded projects counts twice …
+                "county_pairs_with_excluded_project_total"},              // … each pair once here
+ "pairs": [{"plans": ["FDOT · Roadway", "WASD · Water"], "total", "both", "near", "same_time"}],
+ "highlights": ["F1", "F2", …],        // what her fact sheet leads with
+ "findings": [{"id": "F1", "a": "<uid>", "b": "<uid>", "plans": [a, b], "category": "both|near|same_time",
+               "distance_m", "shared_area_m2",
+               "overlap_days",        // > 0: days both are scheduled (end dates count); ≤ 0: −(days between them), 0 = back to back
+               "gap_days", "window": [start, end] (nulls when apart),
+               "reasons": [...], "actions": [...], "score", "geometry": {GeoJSON}, "county": {"listed", "object_id", "record_url"}}],
+ "findings_total": 583,               // "findings" lists the 300 strongest + the 25 best of every pair + every highlighted one
+ "projects_index": [{"uid", "source", "object_id", "project_id", "name", "scope", "agency", "agency_short", "facility",
+                     "kind", "plan", "plan_short", "status", "agency_status", "start", "end", "updated",
+                     "record_url", "notes", "parts"}],     // no contact data
+ "projects_geojson": {"type": "FeatureCollection", "features": [{"id": uid, "geometry", "properties": {"uid", "plan", "kind"}}]}}  // simplified to 3 m
+```
 
 ## Emotion engine (single place that decides the expression)
 

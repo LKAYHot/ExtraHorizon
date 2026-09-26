@@ -101,8 +101,8 @@ class BaseLLM:
             "last_error": self.last_error,
         }
 
-    def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str | StreamInfo]:
-        """Yields text chunks, then exactly one ``StreamInfo``."""
+    def stream(self, messages: list[dict[str, str]], max_tokens: int | None = None) -> AsyncIterator[str | StreamInfo]:
+        """Yields text chunks, then exactly one ``StreamInfo`` (``max_tokens``: a longer answer, e.g. a report)."""
         raise NotImplementedError
 
     async def ping(self) -> bool:
@@ -146,18 +146,18 @@ class OpenAIChat(BaseLLM):
     def configured(self) -> bool:
         return self._configured
 
-    def build_request(self, messages: list[dict[str, str]], model: str) -> dict[str, Any]:
+    def build_request(self, messages: list[dict[str, str]], model: str, max_tokens: int | None = None) -> dict[str, Any]:
         req: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": True,
-            "max_completion_tokens": self.settings.llm_max_output_tokens,
+            "max_completion_tokens": max_tokens or self.settings.llm_max_output_tokens,
         }
         if self._effort and self._effort_ok.get(model, True):
             req["reasoning_effort"] = self._effort
         return req
 
-    async def _open(self, messages: list[dict[str, str]]):
+    async def _open(self, messages: list[dict[str, str]], max_tokens: int | None = None):
         import openai
 
         if self._client is None:
@@ -168,7 +168,7 @@ class OpenAIChat(BaseLLM):
         for model in candidates:
             for _ in range(2):  # 2nd try: without reasoning_effort if the model rejects it
                 try:
-                    stream = await self._client.chat.completions.create(**self.build_request(messages, model))
+                    stream = await self._client.chat.completions.create(**self.build_request(messages, model, max_tokens))
                     return stream, model
                 except openai.BadRequestError as e:
                     if "reasoning" in str(e).lower() and self._effort_ok.get(model, True) and self._effort:
@@ -183,10 +183,10 @@ class OpenAIChat(BaseLLM):
                     raise map_openai_error(e) from e
         raise LLMError("llm_model", f"Model '{self.model}' is not available for this API key.", False)
 
-    async def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str | StreamInfo]:
+    async def stream(self, messages: list[dict[str, str]], max_tokens: int | None = None) -> AsyncIterator[str | StreamInfo]:
         import openai
 
-        stream, model = await self._open(messages)
+        stream, model = await self._open(messages, max_tokens)
         finish: str | None = None
         try:
             async for chunk in stream:
@@ -257,14 +257,31 @@ class MockLLM(BaseLLM):
         super().__init__()
         self.delay_s = delay_s
 
-    async def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str | StreamInfo]:
+    async def stream(self, messages: list[dict[str, str]], max_tokens: int | None = None) -> AsyncIterator[str | StreamInfo]:
         question = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-        body = _MOCK_RECURSION if ("recurs" in question.lower() or "рекурс" in question.lower()) else _MOCK_GENERIC
+        sheet = next((m["content"] for m in messages if m["role"] == "system"
+                      and m["content"].startswith("[Verified utility-coordination analysis")), None)
+        if sheet:
+            body = _mock_analysis(sheet)
+        else:
+            body = _MOCK_RECURSION if ("recurs" in question.lower() or "рекурс" in question.lower()) else _MOCK_GENERIC
         for piece in re.findall(r"\S+\s*|\s+", body):
             if self.delay_s:
                 await asyncio.sleep(self.delay_s)
             yield piece
         yield StreamInfo(model=self.model, finish_reason="stop")
+
+
+def _mock_analysis(sheet: str) -> str:
+    """The offline tutor's analysis answer: lines of the fact sheet, verbatim (labelled mock)."""
+    lines = sheet.splitlines()
+    pick = lambda prefix: next((ln for ln in lines if ln.startswith(prefix)), "")  # noqa: E731
+    findings = [ln for ln in lines if ln[:1] == "F" and " — " in ln][:3]
+    body = ["[confident] I compared the utilities' public construction plans. "
+            "[calm] This is the offline mock tutor, so the report below repeats the verified facts word for word.", "",
+            "### What overlaps", *(f"- {ln}" for ln in findings), "", "### Where the data comes from",
+            f"- {pick('Data:')}", f"- {pick('Records received:')}", f"- {pick('County cross-check')}"]
+    return "\n".join(body)
 
 
 def create_llm(settings: Any) -> BaseLLM:

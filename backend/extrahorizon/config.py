@@ -103,6 +103,18 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ persona
     persona_name: str = "Rika"
 
+    # ------------------------------------------------------------------ utility-coordination analysis
+    # compares utilities' public construction plans (Miami-Dade open data) — docs/ANALYSIS.md
+    coord_enabled: bool = True
+    coord_offline_dir: Path | None = None  # local GeoJSON fixtures instead of the county's services (tests)
+    coord_cache_ttl_s: float = 6 * 3600.0
+    coord_http_timeout_s: float = 30.0
+    coord_distance_m: float = 150.0  # "physically close": footprints within this distance (0 = intersect)
+    coord_window_days: int = 60  # "around the same time": schedules overlap or are at most this far apart
+    coord_area_m: float = 1500.0  # "same time" alone is flagged only for projects this close
+    coord_max_output_tokens: int = 3000  # the written report (~12 findings + sources) is far longer than a spoken answer
+    coord_llm_total_timeout_s: float = 150.0  # …so it gets more time than a spoken answer (EH_LLM_TOTAL_TIMEOUT_S)
+
     # ------------------------------------------------------------------ vision (face + emotions)
     vision_enabled: bool = True
     vision_model_path: Path = MODELS_DIR / FACE_LANDMARKER.filename

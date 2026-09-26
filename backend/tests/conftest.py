@@ -45,6 +45,8 @@ def make_settings(**overrides: Any) -> Settings:
         llm_total_timeout_s=5.0,
         mock_llm_delay_s=0.0,
         stt_final_timeout_s=1.5,
+        # the utility-coordination analysis reads the synthetic fixtures — tests never go online
+        coord_offline_dir=Path(__file__).parent / "fixtures" / "coord",
     )
     base.update(overrides)
     return Settings(_env_file=None, **base)
@@ -52,7 +54,7 @@ def make_settings(**overrides: Any) -> Settings:
 
 class FakeLLM(BaseLLM):
     """Scriptable provider double. ``script`` is consumed one entry per request:
-    "ok" | "error" | "hang" | "stall" | "fail_mid" | "slow" (one word per 50 ms)."""
+    "ok" | "error" | "hang" | "stall" | "fail_mid" | "slow" (one word per 50 ms) | "length" (cut at max_tokens)."""
 
     provider = "fake"
     model = "fake-model"
@@ -63,10 +65,12 @@ class FakeLLM(BaseLLM):
         self.script = list(script or [])
         self.text = text
         self.requests: list[list[dict[str, str]]] = []
+        self.max_tokens: list[int | None] = []
         self.closed = 0
 
-    async def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str | StreamInfo]:
+    async def stream(self, messages: list[dict[str, str]], max_tokens: int | None = None) -> AsyncIterator[str | StreamInfo]:
         self.requests.append(messages)
+        self.max_tokens.append(max_tokens)
         mode = self.script.pop(0) if self.script else "ok"
         try:
             if mode == "error":
@@ -82,7 +86,7 @@ class FakeLLM(BaseLLM):
                     await asyncio.sleep(3600)
                 if mode == "fail_mid" and i == 1:
                     raise LLMError("llm_unreachable", "Connection dropped (fake).", True)
-            yield StreamInfo(model=self.model, finish_reason="stop")
+            yield StreamInfo(model=self.model, finish_reason="length" if mode == "length" else "stop")
         finally:
             self.closed += 1
 

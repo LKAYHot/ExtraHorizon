@@ -3,7 +3,7 @@
   import { renderMarkdown } from '$lib/markdown.js'
   import { hideOpenCue } from '$lib/cues.js'
   import { COLOR, LABEL } from '$lib/emotions.js'
-  import { RefreshCw, CircleAlert, Mic, ScanFace, ChevronDown, Hand, AudioLines } from '$lib/icons.js'
+  import { RefreshCw, CircleAlert, Mic, ScanFace, ChevronDown, Hand, AudioLines, Construction, Check, LoaderCircle, MapIcon } from '$lib/icons.js'
   import Logo from './Logo.svelte'
 
   let { m, isLast = false } = $props()
@@ -14,6 +14,9 @@
     m.role === 'assistant' && m.turn_no != null && app.voice.playing && app.voice.playingKind === 'answer' && app.voice.playingTurn === m.turn_no,
   )
   const ctx = $derived(m.emotion_context)
+  const an = $derived(m.role === 'assistant' ? m.analysis : null)
+  const live = $derived(an?.live)
+  const check = $derived(an?.check)
   let showCtx = $state(false)
   // only the latest typed answer is retryable — re-running an older one would reorder the history
   const canRetry = $derived(isLast && !!m.request && m.error?.code !== 'reset' && m.error?.status !== 409 && m.error?.status !== 422)
@@ -32,6 +35,29 @@
   <article class="assistant" class:speaking aria-busy={streaming} data-testid="assistant-message" data-status={m.status} data-turn={m.turn_no}>
     <div class="avatar"><Logo size={26} /></div>
     <div class="body">
+      {#if an?.mode === 'run'}
+        {@const running = live ? live.state === 'running' || live.state === 'progress' : streaming}
+        <div class="an-card" data-testid="analysis-card" data-state={running ? 'running' : (live?.state ?? 'done')}>
+          <Construction size={14} />
+          <div class="an-text">
+            {#if running}
+              <span class="an-t"><LoaderCircle size={12} class="spin" /> Reading Miami-Dade's open data and verifying every record…</span>
+            {:else if live?.state === 'error'}
+              <span class="an-t warn">Analysis failed: {live.message}</span>
+            {:else if live?.state === 'cancelled'}
+              <span class="an-t">The analysis was stopped before it finished.</span>
+            {:else if live?.state === 'ready'}
+              <span class="an-t">Utility coordination — {live.findings.toLocaleString('en-US')} overlaps between {live.plans} plans ·
+                {live.projects.toLocaleString('en-US')} verified projects{#if live.offline}{' · '}<b class="warn">test fixture</b>{/if}</span>
+            {:else}
+              <span class="an-t">Utility-coordination analysis</span>
+            {/if}
+          </div>
+          {#if !running && live?.state !== 'error' && live?.state !== 'cancelled' && app.coordReport}
+            <button class="btn sm" onclick={() => app.openAnalysis()}><MapIcon size={12} /> Map</button>
+          {/if}
+        </div>
+      {/if}
       {#if m.text}
         <div class="md" class:streaming>{@html html}</div>
       {:else if streaming}
@@ -53,8 +79,17 @@
       {:else if m.status === 'done'}
         <div class="foot">
           {#if m.interrupted}<span class="tag int" data-testid="interrupted-tag"><Hand size={11} /> interrupted</span>{/if}
+          {#if check}
+            {#if check.ok}
+              <span class="tag grounded" data-testid="grounding-ok" title="Every number, date and finding ID in this answer was found in the verified analysis">
+                <Check size={11} /> {check.checked} figures match the verified data</span>
+            {:else}
+              <span class="tag ungrounded" data-testid="grounding-bad" title="Not found in the verified analysis — treat these with caution">
+                <CircleAlert size={11} /> not in the verified data: {check.unknown.join(', ')}</span>
+            {/if}
+          {/if}
           {#if speaking}<span class="tag talk" data-testid="speaking-tag"><AudioLines size={11} /> speaking</span>{/if}
-          <span class="faint">{m.model ?? ''}{#if m.ttft_ms != null} · first token {(m.ttft_ms / 1000).toFixed(2)} s{/if}</span>
+          <span class="faint">{m.model ?? ''}{#if m.ttft_ms != null}{' · '}first token {(m.ttft_ms / 1000).toFixed(2)} s{/if}</span>
           {#if ctx}
             <button class="ctx-btn" onclick={() => (showCtx = !showCtx)} aria-expanded={showCtx} data-testid="ctx-toggle">
               <ScanFace size={12} />
@@ -159,4 +194,12 @@
     content: ''; display: inline-block; width: 7px; height: 1.05em; margin-left: 3px; vertical-align: -2px;
     border-radius: 2px; background: var(--accent); animation: eh-caret 1s steps(1) infinite;
   }
+  .an-card { display: flex; align-items: center; gap: 9px; padding: 8px 10px; margin-bottom: 8px; border-radius: var(--radius-sm);
+    background: var(--plane-bg); box-shadow: var(--ring), var(--rise-1); color: var(--text-2); font-size: 12px; }
+  .an-card > :global(svg) { color: var(--accent); flex: 0 0 auto; }
+  .an-text { flex: 1; min-width: 0; }
+  .an-t { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .an-t.warn, .an-t .warn { color: var(--warn); }
+  .tag.grounded { color: var(--ok); }
+  .tag.ungrounded { color: var(--warn); }
 </style>

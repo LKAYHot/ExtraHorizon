@@ -15,23 +15,26 @@ Node.js 24.19.0). Direct dependencies are pinned by `backend/uv.lock` and
 
 | What | Kind | Runs where | Sees what data |
 |---|---|---|---|
-| **OpenAI Chat Completions** — `gpt-6-luna` (fallback `gpt-5.5`) | LLM service | OpenAI cloud | chat text (typed or transcribed), earlier answers of the session, a words-only note about the learner's apparent facial expression and visible facial actions |
+| **OpenAI Chat Completions** — `gpt-6-luna` (fallback `gpt-5.5`) | LLM service | OpenAI cloud | chat text (typed or transcribed), earlier answers of the session, a words-only note about the learner's apparent facial expression and visible facial actions; in analysis turns the fact sheet of the utility-coordination analysis (public county records, no contact data) |
 | **OpenAI Realtime transcription** — `gpt-live-transcribe` | speech-to-text service | OpenAI cloud | only the **speech segments** of the microphone audio (detected locally), PCM 24 kHz |
 | **Fish Audio live TTS** — model `drama-3-preview`, voice `c5d8a284092847df9e3c7308aeedc5f2` | text-to-speech service | Fish Audio cloud | the text of the tutor's answers (with voice cues) and the short filler phrases |
+| **Miami-Dade County open data** (Utility Coordination layers + the county's conflict list) served by **Esri ArcGIS Online** (`services.arcgis.com/8Pc9XBTAsYuxx9Ny`, item metadata from `www.arcgis.com`) | public data service | the backend reads it (only when the analysis is used) | the queries only (layer, fields, object IDs) and the server's IP address — nothing about the learner (see §3b) |
+| **OpenStreetMap tile servers** (`tile.openstreetmap.org`, OpenStreetMap Foundation) | map tiles | the viewer's browser (only when the analysis map is shown) | the visible map area, the viewer's IP address, browser and the page address (Referer) (see §3b) |
 | **Google MediaPipe Face Landmarker** (`face_landmarker.task`, float16 v1) | ML model | locally, CPU | camera frames (in memory only) |
 | **EmotiEffLib `enet_b0_8_va_mtl`** (ONNX) | ML model (facial expression) | locally, CPU | a face crop of the camera frame (in memory only) |
 | **Silero VAD v5** (ONNX) | ML model (voice activity) | locally, CPU | microphone audio (in memory only) |
 | **Google MediaPipe Tasks usage metrics** | telemetry built into the MediaPipe wheel | Google servers | usage/performance metrics — per Google not images (see §4) |
 | **Cloudflare Tunnel** + `cloudflared` (only for the remote demo; the owner's Cloudflare account) | HTTPS reverse tunnel / CDN edge | Cloudflare edge + a Windows service on the presenter's PC | **all traffic between the demo laptop and the PC**: camera frames, microphone audio, chat text, her voice — TLS terminates at Cloudflare's edge, which re-encrypts it into the tunnel (see §3a) |
-| Python libraries (FastAPI, uvicorn, pydantic, openai, numpy, mediapipe, OpenCV, onnxruntime, ormsgpack, websockets, …) | code | locally | — |
-| JavaScript libraries (Svelte, SvelteKit, Vite, lucide, markdown-it) | code | browser / build | — |
+| Python libraries (FastAPI, uvicorn, pydantic, openai, numpy, mediapipe, OpenCV, onnxruntime, ormsgpack, websockets, shapely/GEOS, httpx, …) | code | locally | — |
+| JavaScript libraries (Svelte, SvelteKit, Vite, lucide, markdown-it, Leaflet) | code | browser / build | — |
 | MediaPipe test portrait; a Windows system voice (SAPI) | test assets generated/downloaded at test time, not committed | locally | — |
 | AzIAIBetter (the author's own earlier project) | design + code reference | — | — |
 | Claude Code (Anthropic, model Claude Opus 5.5) | AI coding assistant used to build the project | development only | the repository contents during development |
 
 Nothing else is contacted at runtime: no analytics of our own, no external fonts or CDNs
-(system fonts only), no accounts, no cloud storage, no database. Cloudflare is in the path only when
-the remote demo is used (§3a); a local run never touches it.
+(system fonts only; Leaflet is bundled), no accounts, no cloud storage, no database. Cloudflare is in the path only
+when the remote demo is used (§3a); the county's ArcGIS services and OpenStreetMap's tile servers only when the
+utility-coordination analysis is used (§3b); a local run without them touches none of these.
 
 ---
 
@@ -42,6 +45,8 @@ the remote demo is used (§3a); a local run never touches it.
 * **API:** Chat Completions with streaming (`POST https://api.openai.com/v1/chat/completions`) via the official `openai` Python SDK; `GET /v1/models/{model}` for the optional deep health check.
 * **Model:** `gpt-6-luna` with `reasoning_effort: "none"`, `max_completion_tokens: 600` — chosen by a latency/instruction-following benchmark on 2026-09-25 (median time-to-first-token 0.49 s in isolation; 0.8–1.6 s measured inside the live voice loop). Fallback `gpt-5.5` only if the primary model is rejected as unknown (HTTP 404) before streaming. Both configurable (`EH_LLM_MODEL`, `EH_LLM_FALLBACK_MODEL`).
 * **Data sent:** the system prompt (the tutor persona "Rika" and her voice-cue rules, `backend/extrahorizon/context.py`), up to 10 previous exchanges of the session (text only; an interrupted answer is marked as such), for a spoken question a short note saying it was spoken, and — only when exactly one face is clearly in view and the learner's relaxed face has been calibrated — **a short words-only description of the learner's apparent facial expression**, phrased as what the tutor sees on the video call (e.g. *"[What you see on the learner's webcam right now] The learner looks mostly annoyed. Visible right now: frowning, brows pulled down. Overall mood: negative, moderate energy."* — no numbers, no images, no landmarks; during the Demo simulation it is labelled as a simulation), then the new message. Nothing else from the camera. The persona is told that a face shows how someone looks, not what they feel, to mention it rarely and to believe the learner when they say it is wrong; the UI labels every reading as an estimate.
+
+* **Analysis turns** (docs/ANALYSIS.md): instead of the tutoring context, a **fact sheet** of the utility-coordination analysis — the data source and read time, record totals and exclusions by reason, the plans, the rules, finding counts, the county cross-check, findings per pair of plans and the highlighted findings (plan, project name and ID, status, dates, distance or shared area, days together, county-list status) — public Miami-Dade County records; the contact e-mails and phone numbers in those records are never included. `max_completion_tokens: 3000` for the written report.
 
 ### 2.2 Speech-to-text
 
@@ -80,6 +85,29 @@ the remote demo is used (§3a); a local run never touches it.
   brake; same-origin checks. Recommended in addition: Cloudflare Access (Zero Trust) email policy on the hostname.
 * **Terms:** Cloudflare's own terms/privacy policy apply to the owner's account; ExtraHorizon adds no Cloudflare
   code, SDK or account of its own.
+
+## 3b. Utility-coordination analysis: Miami-Dade County open data (Esri ArcGIS Online) + OpenStreetMap tiles
+
+* **Data:** Miami-Dade County's public **Utility Coordination** feature layers (water, sewer, reclaimed water,
+  stormwater, power, gas, cable, roadway, paving, bridge, transit, canal, miscellaneous, moratorium), the county's
+  **Potential Collaboration Project** list and its **Miami-Dade Boundary** polygon (item
+  `cec575982ea64ef7a11e587e532c6b6a`, used for "inside the county", generalised to ≈30 m), published by the county's
+  ArcGIS Online account `MDPublisher`
+  (organisation `8Pc9XBTAsYuxx9Ny`; open-data portal https://gis-mdc.opendata.arcgis.com). Read with the ArcGIS REST
+  API over HTTPS by `backend/extrahorizon/coord/arcgis.py` (`/FeatureServer/0?f=json`, `/query` for counts,
+  attributes and GeoJSON footprints in WGS84) and `https://www.arcgis.com/sharing/rest/content/items/<id>` for each
+  item's owner, access and modified date (the "publisher" check). No key, no account. Kept in memory 6 h; the last
+  good copy of each layer in `backend/cache/coord/` (git-ignored), used only if a live read fails and then labelled.
+  The data remains the county's; use is subject to Miami-Dade County's open-data terms and Esri's terms of use. Today's
+  counts are in docs/ANALYSIS.md.
+* **Map tiles:** OpenStreetMap's standard tiles from `https://tile.openstreetmap.org/{z}/{x}/{y}.png`, requested by the
+  viewer's browser through Leaflet while the analysis map is visible, shown darkened with a CSS filter. Map data
+  © OpenStreetMap contributors, **ODbL 1.0**; attribution is shown on the map. The tile servers are run by the
+  OpenStreetMap Foundation under its tile usage policy (light, interactive use with attribution — a hackathon demo);
+  they see the viewer's IP address, browser and the page address. The e2e tests block these requests. (A CARTO
+  basemap was used during development until it started requiring an API key; it is no longer used.)
+* **Test fixtures:** `backend/tests/fixtures/coord/` is synthetic TEST data invented for this project
+  (`make_coord_fixtures.py`), labelled as such everywhere; not county data.
 
 ## 4. Local ML models
 
@@ -121,9 +149,10 @@ Direct dependencies (`backend/pyproject.toml`):
 | onnxruntime | 1.30.0 | MIT | runs the expression model and Silero VAD |
 | ormsgpack | 1.12.2 | Apache-2.0 OR MIT | Fish Audio WebSocket frames (MessagePack) |
 | websockets | 17.1 | BSD-3-Clause | client WebSockets to Fish Audio and OpenAI Realtime |
+| shapely | 2.1.2 | BSD-3-Clause (wheels bundle **GEOS 3.13.1**, LGPL-2.1) | analysis footprints: validity repair, STR-tree index, distances, intersections, simplification |
+| httpx | 0.28.1 | BSD-3-Clause | the ArcGIS REST client of the analysis; also the test client and `demo_check.py` |
 | pytest *(dev)* | 9.1.1 | MIT | tests |
 | pytest-asyncio *(dev)* | 1.4.0 | Apache-2.0 | async tests |
-| httpx *(dev)* | 0.28.1 | BSD-3-Clause | test client, `demo_check.py` |
 
 Notable transitive packages: starlette 1.7.0 (BSD-3-Clause), anyio 4.15.1 (MIT),
 opencv-contrib-python 5.0.0.93 (Apache-2.0; JPEG decode, colour conversion, the face crop,
@@ -142,6 +171,7 @@ used by ExtraHorizon. Build backend: hatchling (MIT).
 | vite | 8.3.1 | MIT | dev server (proxy) and bundler |
 | @lucide/svelte | 1.48.0 | ISC | icons (only the imported ones are bundled) |
 | markdown-it | 15.0.2 | MIT | rendering answers (`html: false` → model HTML is escaped); a small local plugin renders voice cues |
+| leaflet | 1.9.4 | BSD-2-Clause | the analysis map (bundled by Vite with its CSS; tiles from OpenStreetMap, §3b) |
 | vitest *(dev)* | 5.0.2 | MIT | unit tests |
 | svelte-check *(dev)* | 4.7.6 | MIT | type/a11y checks |
 | @playwright/test *(dev)* | 1.63.0 | Apache-2.0 | browser e2e tests (drives the installed Microsoft Edge; no browser download) |
@@ -180,6 +210,7 @@ awake only while the demo host runs).
   * UI design language (web console, Svelte 5): the "one material" plane/raise/well tokens with sheen and depth levels, grain + dot-grid background, cursor spotlight, the focus "beam" around the composer, chrome logo text, motion rules, and the Vite proxy keep-alive agent (fixes intermittent ECONNRESET on Windows) — adapted and re-coloured.
   * Fish Audio integration know-how and code structure (`src/azi/tts/fish_ws.py`, `tts/silence.py`, `docs/drama3_voice.md`): that `drama-*` models only work on `/v1/tts/live/with-timestamp` with the `model` header, `latency: balanced`, a warm connection pool, starting the voice before the LLM's first words, trimming drama's multi-second pauses, a watchdog and a breaker. Re-implemented for this project (`backend/extrahorizon/voice/fish.py`, `silence.py`).
 * **Chart colours and chart rules** — the eight emotion colours are the documented dark categorical steps of the reference palette in Claude Code's bundled *dataviz* skill, with a stacking order chosen by enumerating orderings and validating them with that skill's `validate_palette.js` on this app's chart surface `#0e1629` (lightness band, chroma floor, contrast ≥ 3:1: pass; worst adjacent CVD ΔE 9.4; normal-vision ΔE 19.3); plus its mark/interaction rules (hairline grid, 2 px surface gaps, legend + direct labels, hover crosshair with every series, table view).
+* **Analysis colours** — the two compared plans use blue `#3987e5` and orange `#d95926`, steps of the same *dataviz* reference palette, validated with `validate_palette.js --pairs all` on the map surface `#1b1c1e` (lightness band, chroma floor, contrast ≥ 3:1: pass; CVD ΔE 26.8, normal-vision ΔE 31.8); other plans in recessive gray, overlaps in near-white; the basemap is turned gray so only the data carries hue.
 * **Icons** — Lucide (ISC). **Fonts** — system fonts only.
 
 ## 10. Research references
@@ -193,7 +224,7 @@ No data or code from these works is used beyond the models listed in §4.
 
 ## 11. AI assistance used to build ExtraHorizon
 
-* **Claude Code** (Anthropic's agentic coding tool, desktop app) running **Claude Opus 5.5** (`claude-opus-5-5`) designed and wrote the backend, frontend, tests, scripts, documentation and the project skills in `.claude/skills/`, following the team's implementation brief (`ExtraHorizon_ShellHacks_Implementation_Prompt.md`) and the owner's follow-up requirements (emotion recognition and visualisation, Fish Audio voice with emotion cues, the tsundere persona, real-time voice with interruptions and fillers; then per-person emotion calibration, microphone selection and the persona's video-call behaviour; then styled select boxes and the remote demo through Cloudflare Tunnel with an access key). It ran the tests, the model and provider measurements, the browser checks and the live voice probes reported here. To reproduce a false "angry" reading, it analysed two screenshots of the camera panel that the owner shared in the chat, with the local models only; the images and crops are not part of the repository.
+* **Claude Code** (Anthropic's agentic coding tool, desktop app) running **Claude Opus 5.5** (`claude-opus-5-5`) designed and wrote the backend, frontend, tests, scripts, documentation and the project skills in `.claude/skills/`, following the team's implementation brief (`ExtraHorizon_ShellHacks_Implementation_Prompt.md`) and the owner's follow-up requirements (emotion recognition and visualisation, Fish Audio voice with emotion cues, the tsundere persona, real-time voice with interruptions and fillers; then per-person emotion calibration, microphone selection and the persona's video-call behaviour; then styled select boxes and the remote demo through Cloudflare Tunnel with an access key; then the utility-coordination analysis from the hackathon challenge text the owner supplied — compare at least two utilities' public future construction plans, flag overlaps in space or time, verify everything, explain it in the dialogue and show it visually). It ran the tests, the model and provider measurements, the browser checks and the live voice probes reported here. To reproduce a false "angry" reading, it analysed two screenshots of the camera panel that the owner shared in the chat, with the local models only; the images and crops are not part of the repository.
 * Independent Claude sub-agents performed read-only code reviews; confirmed findings were fixed and re-tested.
 * Claude Code skills used during development: *dataviz* (palette + validator + chart rules), *skill-creator* (format of the project skills).
 * At runtime the answers are generated by OpenAI (§2) and voiced by Fish Audio (§3); no Anthropic model is called by the app.

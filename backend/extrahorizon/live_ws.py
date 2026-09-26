@@ -97,6 +97,20 @@ def is_stop_command(text: str) -> bool:
     return any(w in STOP_CORE for w in words) and all(w in STOP_CORE or w in STOP_EXTRA for w in words)
 
 
+BACKCHANNEL = {
+    "ok", "okay", "k", "yeah", "yes", "yep", "yup", "mm", "mhm", "mmhmm", "hmm", "uh", "huh", "right", "cool", "nice",
+    "great", "got", "it", "sure", "thanks", "thank", "you", "i", "see", "alright", "fine", "good", "wow", "oh", "ah",
+    "ага", "угу", "да", "ок", "окей", "понятно", "ясно", "хорошо", "спасибо", "класс", "отлично", "ну", "ладно", "понял",
+    "поняла", "ого", "ааа", "ммм",
+}
+
+
+def is_backchannel(text: str) -> bool:
+    """'Okay', 'got it', 'угу' — listening noises, not a question."""
+    words = _WORD.findall(text.lower())
+    return 0 < len(words) <= 3 and all(w in BACKCHANNEL for w in words)
+
+
 _CAP_WORD = re.compile(r"([A-ZА-ЯЁ])([a-zа-яё])")
 
 
@@ -130,6 +144,7 @@ class Utterance:
     merged: bool = False  # continued by a later utterance (which answers for both)
     ignored: str | None = None  # empty | echo | stop | stopped
     cancelled: bool = False  # stop button / barge-in / reset before it was answered
+    during_report: bool = False  # began while her analysis report was being written silently
 
     def chain(self) -> list[Utterance]:
         out: list[Utterance] = []
@@ -441,6 +456,7 @@ class LiveConnection:
         if audible:
             u.echo_ref = self.session.recent_assistant_text()
         prev = self._last
+        u.during_report = self.session.writing_silently and not self.client_playing
         if prev is not None and self._continues(prev, now):
             u.prefix = prev
             prev.merged = True
@@ -473,7 +489,7 @@ class LiveConnection:
         stop_like = is_stop_command(heard) or (u.barge and duration_ms < 1200)
         # a filler the instant the learner stops (covers transcription + first token + first audio)
         spoken_ms = sum(x.duration_ms for x in u.chain())
-        if (self.s.fillers_enabled and self.voice_out and not stop_like
+        if (self.s.fillers_enabled and self.voice_out and not stop_like and not u.during_report
                 and spoken_ms >= self.s.filler_min_utterance_ms and getattr(self.svc.fillers, "ready", False)):
             last = self.session.emotion.last_state
             filler = self.svc.fillers.pick(last.dominant if last else None)
@@ -488,7 +504,7 @@ class LiveConnection:
         # a stop command, and not on what already sounds like her own voice (echo)
         looks_echo = bool(u.echo_ref) and echo_ratio(u.partial, u.echo_ref) >= 0.6
         if (self.s.stt_speculative and len(_WORD.findall(heard)) >= 2 and not is_stop_command(heard)
-                and not looks_echo):
+                and not looks_echo and not u.during_report):
             try:
                 plan = self.session.plan_chat(message=heard, subject=None, source="voice",
                                               turn_no=u.turn_no, speculative=True)
@@ -546,6 +562,15 @@ class LiveConnection:
         if is_stop_command(full) and any(x.barge for x in u.chain()):
             self._ignore(u, "stop", full)  # "wait, stop" only silences her
             return
+        if u.during_report and self.session.writing_silently:
+            if is_backchannel(full):
+                self._ignore(u, "backchannel", full)  # "okay", "угу": let her finish the written report
+                return
+            report = self.session.chat_plan
+            self.session.interrupt("interrupted")  # a real question: keep the report so far (interrupted) …
+            if report is not None:  # … committed before the new question becomes the current turn
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(report.settled.wait(), 2.0)
         self.send({"type": "heard", "utt": u.n, "turn_no": u.turn_no, "text": full})
         plan = u.plan
         if plan is not None and not plan.cancel.is_set() and _norm(full) == _norm(plan.user_msg["text"]):
@@ -568,7 +593,8 @@ class LiveConnection:
         if len(self._plan_ids) > 256:
             self._plan_ids.clear()  # only a turn still in flight matters
         self._plan_ids.add(plan.request_id)
-        runner = TurnRunner(self.session, plan, self.svc.llm, self.s, self.svc.tts, self)
+        runner = TurnRunner(self.session, plan, self.svc.llm, self.s, self.svc.tts, self,
+                            coord=getattr(self.svc, "coord", None))
         async for name, data in runner.events():
             if name == "discarded":
                 return

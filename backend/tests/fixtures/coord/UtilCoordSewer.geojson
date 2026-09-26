@@ -1,0 +1,140 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.24505,
+       25.765
+      ],
+      [
+       -80.24495,
+       25.765
+      ],
+      [
+       -80.24495,
+       25.775
+      ],
+      [
+       -80.24505,
+       25.775
+      ],
+      [
+       -80.24505,
+       25.765
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 1,
+    "PRJNAME": "TEST S1 sewer force main",
+    "PROJECTID": "TS-200",
+    "PRJSCOPE": "TEST fixture \u2014 TEST S1 sewer force main",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Sewer",
+    "GENPRJSTAT": "Design",
+    "AGYPRJSTAT": "Design",
+    "STARTDATE": 1793491200000,
+    "ENDDATE": 1803859200000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.24405,
+       25.765
+      ],
+      [
+       -80.24395,
+       25.765
+      ],
+      [
+       -80.24395,
+       25.775
+      ],
+      [
+       -80.24405,
+       25.775
+      ],
+      [
+       -80.24405,
+       25.765
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 2,
+    "PRJNAME": "TEST S2 placeholder dates",
+    "PROJECTID": "TS-201",
+    "PRJSCOPE": "TEST fixture \u2014 TEST S2 placeholder dates",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Sewer",
+    "GENPRJSTAT": "Planning",
+    "AGYPRJSTAT": "Planning",
+    "STARTDATE": -2209075200000,
+    "ENDDATE": 1798761600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.40005000000001,
+       25.595
+      ],
+      [
+       -80.39995,
+       25.595
+      ],
+      [
+       -80.39995,
+       25.605
+      ],
+      [
+       -80.40005000000001,
+       25.605
+      ],
+      [
+       -80.40005000000001,
+       25.595
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3,
+    "PRJNAME": "TEST S3 joint sewer part",
+    "PROJECTID": "TJ-500",
+    "PRJSCOPE": "TEST fixture \u2014 TEST S3 joint sewer part",
+    "AGCYNAME": "Miami-Dade Water and Sewer Department",
+    "FACTYPE": "Sewer",
+    "GENPRJSTAT": "Planning",
+    "AGYPRJSTAT": "Planning",
+    "STARTDATE": 1798761600000,
+    "ENDDATE": 1830297600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  }
+ ]
+}

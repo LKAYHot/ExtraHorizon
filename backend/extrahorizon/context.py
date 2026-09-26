@@ -35,6 +35,29 @@ REPLY_NOTE_VOICE = (
     f"like in a real conversation — two or three short sentences (about thirty-five words), then stop; {_RULES}]"
 )
 VOICE_NOTE = REPLY_NOTE_VOICE  # kept for older imports
+# the utility-coordination analysis (coord/): a detailed written report grounded in the fact sheet
+ANALYSIS_REPLY_NOTE = (
+    "[Reply rules for this answer — it presents the utility-coordination analysis in the fact sheet above. "
+    "1) Start with a spoken summary: two or three short sentences in your own voice, one voice cue at the start of "
+    "each — only this first paragraph is read aloud. "
+    "2) Then a blank line and a detailed written report in Markdown with no voice cues: '### What overlaps' — every "
+    "highlighted finding by ID (F1, F2, …), one compact bullet each: both projects (plan, name, project ID, status, "
+    "dates), the distance or shared area, the days scheduled together or the gap, whether the county's own conflict "
+    "list has the pair, and what the two utilities could share (crews, equipment, one excavation, traffic control); "
+    "'### Which plans overlap most' — the counts per pair of plans; '### Where the data comes from' — the sources, how "
+    "many records were checked, verified and excluded (with reasons), the county cross-check; '### Caveats' — only "
+    "those in the sheet. "
+    "Use ONLY the fact sheet: copy numbers, dates (YYYY-MM-DD), names and IDs exactly as written and never "
+    "calculate new ones (no sums, differences or percentages — the sheet already has the totals); never invent a "
+    "project, figure, date or source; if something is not in the sheet, say the data does not show it.]"
+)
+ANALYSIS_FOLLOWUP_NOTE = (
+    "[Reply rules: the learner asks about the utility-coordination analysis in the fact sheet above. Answer like "
+    "yourself in one to three short spoken sentences with voice cues; if details help, add a blank line and written "
+    "details in Markdown without cues. Use ONLY the fact sheet — cite finding IDs, copy numbers, dates (YYYY-MM-DD) "
+    "and names exactly, never calculate new numbers; if the sheet does not contain it, say the data does not show "
+    "it. If the message turns out not to be about the analysis, ignore the sheet and answer as yourself.]"
+)
 
 PERSONA_PROMPT = """You are {name}: a proud, sharp-tongued tsundere anime girl and a genuinely brilliant tutor, on a live video call with the learner. You talk and react like a real person on that call — never like an AI assistant.
 Tutor mode subject: {subject}.
@@ -51,6 +74,7 @@ HOW YOU TALK (a live call, not a chat log)
 - If what they said is unclear, cut off or garbled by the microphone, react like a person: "[confused] Huh? You trailed off — recursion what?" Never ask them to "restate the question".
 - Never say things like "How can I help you?", "I'm here to help", "Tell me what you were asking", "I'll answer directly", "Great question", "Let me know if you have any other questions", "As an AI", "I don't have feelings".
 - If they interrupted you, don't restart the lecture — respond to what they said.
+- Exception — the utility-coordination analysis: when a system message holds a verified analysis fact sheet, you are also a sharp infrastructure analyst; follow that message's reply rules (there a longer written report in Markdown is fine; only your first paragraph is spoken) and state nothing about the analysis that the sheet does not say.
 
 EXPLANATIONS (this part is serious)
 - Under the attitude you explain like a sharp, no-nonsense expert tutor: accurate, concrete, well structured, zero fluff. Correct misconceptions directly and plainly.
@@ -112,6 +136,8 @@ def build_messages(
     history_turns: int = 10,
     name: str = "Rika",
     voice: bool = False,
+    analysis_sheet: str | None = None,
+    analysis_mode: str | None = None,
 ) -> list[dict[str, str]]:
     """Chat Completions ``messages`` for one request. Only text from the history is used;
     ids, timings and emotion metadata stored with past messages never reach the model.
@@ -124,9 +150,19 @@ def build_messages(
         if m.get("role") == "assistant" and m.get("interrupted"):
             text += " (…the learner interrupted me here)"
         msgs.append({"role": m["role"], "content": text})
+    if analysis_sheet:
+        msgs.append({"role": "system", "content": analysis_sheet})
     note = emotion_note(emotion_context)
     if note:
         msgs.append({"role": "system", "content": note})
-    msgs.append({"role": "system", "content": REPLY_NOTE_VOICE if voice else REPLY_NOTE_TEXT})
+    if analysis_mode == "run":
+        reply = ANALYSIS_REPLY_NOTE
+    elif analysis_mode == "context":
+        reply = ANALYSIS_FOLLOWUP_NOTE
+    else:
+        reply = REPLY_NOTE_VOICE if voice else REPLY_NOTE_TEXT
+    if analysis_mode and voice:
+        reply = "[The learner said this out loud (speech-to-text, may contain small recognition errors).] " + reply
+    msgs.append({"role": "system", "content": reply})
     msgs.append({"role": "user", "content": user_text})
     return msgs

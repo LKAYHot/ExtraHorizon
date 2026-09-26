@@ -136,6 +136,84 @@ def test_spoken_question_gets_filler_then_answer_voice_on_the_same_turn():
             cm.__exit__(None, None, None)
 
 
+def test_a_spoken_question_about_the_utilities_runs_the_analysis_on_the_voice_socket():
+    """Asked out loud: the analysis events reach the browser on the live socket before her answer, the prompt
+    holds the fact sheet (marked as spoken), the report budget applies and the answer is grounding-checked."""
+    c, llm = voice_app(["Compare the utilities' construction plans and flag the overlaps."])
+    with c:
+        cm, live, _ = open_live(c)
+        try:
+            live.say(question(1.2))
+            done = live.until(lambda m: m["type"] == "turn" and m["event"] == "done", timeout=15)
+            turn = done["turn_no"]
+            events = live.turn_events(turn)
+            assert "analysis" in events and events.index("analysis") < events.index("delta")
+            states = [m["data"]["state"] for m in live.msgs
+                      if m.get("type") == "turn" and m["turn_no"] == turn and m["event"] == "analysis"]
+            assert states[0] == "running" and states[-1] == "ready"
+            ready = [m["data"] for m in live.msgs if m.get("type") == "turn" and m["event"] == "analysis"
+                     and m["data"]["state"] == "ready"][-1]
+            assert ready["findings"] == 7 and ready["offline"] is True
+            assert done["data"]["analysis"]["mode"] == "run" and done["data"]["analysis"]["check"]["ok"] is True
+            prompt = llm.requests[-1]
+            assert any(m["content"].startswith("[Verified utility-coordination") for m in prompt)
+            assert prompt[-2]["content"].startswith("[The learner said this out loud")
+            assert llm.max_tokens[-1] == 3000
+            live.until(lambda m: m["type"] == "audio_end" and m["turn_no"] == turn)
+            assert live.of("audio_begin", turn_no=turn, kind="answer")  # her spoken summary
+        finally:
+            cm.__exit__(None, None, None)
+
+
+REPORT = ("[confident] Two plans overlap near the county line, and I checked every record. \n\n### What overlaps\n"
+          + " ".join(["- F1: the water main and the road work share one trench window."] * 12))
+
+
+def _report_voice_done(live, turn: int) -> None:
+    live.until(lambda m: m["type"] == "audio_end" and m["turn_no"] == turn, timeout=15)
+
+
+def test_okay_while_she_writes_the_report_does_not_cut_it():
+    """Found in review: after her spoken summary the report is still being written — a listening noise from
+    the learner ("okay") must not interrupt it."""
+    c, _ = voice_app(["Compare the utilities' construction plans and flag the overlaps.", "Okay."],
+                     llm=FakeLLM(script=["slow", "slow"], text=REPORT), llm_idle_timeout_s=2.0)
+    with c:
+        cm, live, _ = open_live(c)
+        try:
+            live.say(question(1.2))
+            first = live.until(lambda m: m["type"] == "vad" and m["speaking"] is False)["turn_no"]
+            _report_voice_done(live, first)
+            live.say(question(0.6))  # "Okay."
+            ign = live.until(lambda m: m["type"] == "stt_ignored", timeout=10)
+            assert ign["reason"] == "backchannel"
+            done = live.until(lambda m: m["type"] == "turn" and m["turn_no"] == first
+                              and m["event"] in ("done", "interrupted"), timeout=20)
+            assert done["event"] == "done" and not live.of("barge_in")
+        finally:
+            cm.__exit__(None, None, None)
+
+
+def test_a_real_question_during_the_written_report_keeps_what_was_written():
+    c, llm = voice_app(["Compare the utilities' construction plans and flag the overlaps.", "Explain recursion to me."],
+                       llm=FakeLLM(script=["slow", "slow", "ok", "ok"], text=REPORT), llm_idle_timeout_s=2.0)
+    with c:
+        cm, live, _ = open_live(c)
+        try:
+            live.say(question(1.2))
+            first = live.until(lambda m: m["type"] == "vad" and m["speaking"] is False)["turn_no"]
+            _report_voice_done(live, first)
+            live.say(question(1.2))  # "Explain recursion to me."
+            cut = live.until(lambda m: m["type"] == "turn" and m["turn_no"] == first
+                             and m["event"] in ("done", "interrupted", "error"), timeout=20)
+            assert cut["event"] == "interrupted"  # the written part is kept, marked
+            assert cut["data"]["analysis"]["check"]["ok"] is True  # and grounding-checked
+            live.until(lambda m: m["type"] == "turn" and m["turn_no"] != first and m["event"] == "done", timeout=20)
+            assert llm.requests[-1][-1]["content"] == "Explain recursion to me."
+        finally:
+            cm.__exit__(None, None, None)
+
+
 def test_a_finished_speculative_answer_is_not_committed_when_the_final_transcript_differs():
     """The LLM may finish the speculative answer before the final transcript arrives: it must
     wait for confirmation, and a mismatch must leave no trace in the history."""

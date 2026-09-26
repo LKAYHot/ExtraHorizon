@@ -1,0 +1,185 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.25,
+       25.77019
+      ],
+      [
+       -80.24,
+       25.77019
+      ],
+      [
+       -80.24,
+       25.77035
+      ],
+      [
+       -80.25,
+       25.77035
+      ],
+      [
+       -80.25,
+       25.77019
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 1,
+    "PRJNAME": "TEST R1 state road rebuild",
+    "PROJECTID": "TR-300",
+    "PRJSCOPE": "TEST fixture \u2014 TEST R1 state road rebuild",
+    "AGCYNAME": "FDOT",
+    "FACTYPE": "Roadway",
+    "GENPRJSTAT": "Pre-Engineering",
+    "AGYPRJSTAT": "Pre-Engineering",
+    "STARTDATE": 1830297600000,
+    "ENDDATE": 1877472000000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.23205,
+       25.768
+      ],
+      [
+       -80.23195,
+       25.768
+      ],
+      [
+       -80.23195,
+       25.772
+      ],
+      [
+       -80.23205,
+       25.772
+      ],
+      [
+       -80.23205,
+       25.768
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 2,
+    "PRJNAME": "TEST R2 county road resurfacing",
+    "PROJECTID": "TR-301",
+    "PRJSCOPE": "TEST fixture \u2014 TEST R2 county road resurfacing",
+    "AGCYNAME": "Miami-Dade County Department of Transportation and Public Works",
+    "FACTYPE": "Roadway",
+    "GENPRJSTAT": "Construction",
+    "AGYPRJSTAT": "Construction",
+    "STARTDATE": 1792022400000,
+    "ENDDATE": 1799971200000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -81.11,
+       24.699949999999998
+      ],
+      [
+       -81.1,
+       24.699949999999998
+      ],
+      [
+       -81.1,
+       24.70005
+      ],
+      [
+       -81.11,
+       24.70005
+      ],
+      [
+       -81.11,
+       24.699949999999998
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 3,
+    "PRJNAME": "TEST R3 Keys highway",
+    "PROJECTID": "TR-302",
+    "PRJSCOPE": "TEST fixture \u2014 TEST R3 Keys highway",
+    "AGCYNAME": "FDOT",
+    "FACTYPE": "Roadway",
+    "GENPRJSTAT": "Pre-Engineering",
+    "AGYPRJSTAT": "Pre-Engineering",
+    "STARTDATE": 1790812800000,
+    "ENDDATE": 1830297600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       -80.4,
+       25.14295
+      ],
+      [
+       -80.396,
+       25.14295
+      ],
+      [
+       -80.396,
+       25.143050000000002
+      ],
+      [
+       -80.4,
+       25.143050000000002
+      ],
+      [
+       -80.4,
+       25.14295
+      ]
+     ]
+    ]
+   },
+   "properties": {
+    "OBJECTID": 4,
+    "PRJNAME": "TEST R4 Key Largo overpass",
+    "PROJECTID": "TR-303",
+    "PRJSCOPE": "TEST fixture \u2014 TEST R4 Key Largo overpass",
+    "AGCYNAME": "FDOT",
+    "FACTYPE": "Roadway",
+    "GENPRJSTAT": "Design",
+    "AGYPRJSTAT": "Design",
+    "STARTDATE": 1790812800000,
+    "ENDDATE": 1830297600000,
+    "GENCONTEMAIL": "test@example.org",
+    "GENCONTNUM": "0000000000",
+    "UPDATDATE": 1788220800000
+   }
+  }
+ ]
+}

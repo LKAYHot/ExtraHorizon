@@ -7,7 +7,10 @@ description: Prepare, rehearse and troubleshoot the 60–90 second ExtraHorizon 
 
 The demo must prove two chains, with honest explanations on screen:
 **voice → fast in-character spoken answer you can interrupt**, and
-**camera → calibrated on-device expression estimate → words-only note of what she sees → adapted tone**.
+**camera → calibrated on-device expression estimate → words-only note of what she sees → adapted tone**;
+optionally a third: **"Where do the utilities' construction plans overlap?" → live county data verified → map +
+findings → her grounded report** (docs/ANALYSIS.md, skill `extrahorizon-coord-analysis`; run it once before the show
+so the county's data is cached, read the numbers from the tiles — they change with the county's data).
 
 If the laptop is only the screen and the PC at home does the work (Cloudflare Tunnel), prepare with the
 `extrahorizon-remote-demo` skill first (`demo-host.ps1 -Check`, `demo_check.py --access-key-env` through the

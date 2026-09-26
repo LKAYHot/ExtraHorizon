@@ -107,6 +107,28 @@ lets non-local requests into `/api/*` and the sockets only with the signed acces
 `POST /api/access`. A remote browser gets a lighter camera profile (8 fps, JPEG 0.7) and honest "via
 Cloudflare" wording. `scripts/demo-host.ps1` runs and supervises it; details in [REMOTE_DEMO.md](REMOTE_DEMO.md).
 
+## Utility-coordination analysis ([ANALYSIS.md](ANALYSIS.md))
+
+```
+question / Coordination button ─▶ Session.plan_chat (mode run | context) ─▶ TurnRunner._run_analysis
+   CoordService.analyze: ArcGIS REST (14 layers + the county's conflict list; memory 6 h, last copy on disk)
+     → verify (dataset checks, record checks, parts merged) → overlaps (local metric plane, STR-tree, GEOS)
+     → county cross-check → report (findings, pairs, highlights, simplified footprints)
+   ─▶ SSE / live: analysis {running → progress → ready | error}
+   ─▶ fact sheet (the only facts she may state) + report rules → LLM (3,000 tokens; first paragraph voiced)
+   ─▶ grounding check (numbers ≥ 10, dates, finding IDs vs the sheet) → done.analysis.check
+Browser: AnalysisPanel replaces the Expression panel — tiles · pair picker · Leaflet map (OSM tiles) ·
+   Findings (re-check live) · Schedules (SVG) · Sources & checks (rules form → POST /api/coord/analyze)
+```
+
+| Failure | Behaviour |
+|---|---|
+| A county layer does not answer | its last good copy is used and labelled (in the panel, the report and her fact sheet); without a copy the layer is left out and named as unreadable; a read with a failed layer is retried after a minute |
+| No layer can be read | the analysis fails: `analysis` error event / `502 analysis_source`; her fact sheet says FAILED and she says so plainly |
+| The written report reaches its length limit | a visible note ends it (the map and findings list have everything) |
+| She writes a number, date or ID that is not in the sheet | the answer is marked *not in the verified data: …* |
+| Map tiles unreachable | the map keeps the projects and overlaps without streets |
+
 ## Why this shape
 
 One Python process serves the UI, the API and both sockets on one port (fewer moving parts on demo day). Local

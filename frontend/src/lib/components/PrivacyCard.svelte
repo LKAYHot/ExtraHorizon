@@ -26,6 +26,7 @@
     <li><strong>Microphone:</strong> audio goes to the ExtraHorizon backend{app.viaTunnel ? ' (the same way, through Cloudflare)' : ''}, which detects speech{local ? ' locally' : ''}; only the parts where you speak are sent to {stt} for transcription. Nothing is recorded.</li>
     <li><strong>Sent to {llm}:</strong> your messages (typed or transcribed), her earlier answers and a short words-only description of your apparent expression (e.g. “looks relaxed”, “frowning”). No images, landmarks or numbers.</li>
     <li><strong>Sent to {tts}:</strong> the text of her answers, to speak them in her voice.</li>
+    <li data-testid="privacy-coord"><strong>Utility-coordination analysis</strong> (only when you use it): the server reads Miami-Dade County's public open data from ArcGIS Online — nothing about you is sent; the verified public facts about the projects go to {llm} so she can explain them; the map tiles are loaded by this browser from OpenStreetMap's tile servers, which see your IP address.</li>
     <li><strong>Sent to Google by the MediaPipe library:</strong> anonymous usage metrics (e.g. frame counts, latency, OS/Python version) while the camera is on — per <a href="https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice" target="_blank" rel="noopener noreferrer">Google's notice</a>, never the images or video.</li>
     <li><strong>Not stored:</strong> sessions live in memory; <em>New session</em> or closing the backend deletes them.</li>
   </ul>

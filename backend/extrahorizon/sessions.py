@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .context import build_messages, emotion_note, normalize_subject
+from .coord.intent import about_analysis, wants_analysis, wants_refresh, wants_rerun
+from .coord.report import fact_sheet
 from .emotion.calibration import SENSITIVITY, Calibrator
 from .emotion.engine import LABELS, OK, UNKNOWN, EmotionConfig, EmotionEngine, EmotionObservation
 from .timeline import Timeline
@@ -75,6 +77,12 @@ class ChatPlan:
     cancel_reason: list[str] = field(default_factory=list)
     text_so_far: list[str] = field(default_factory=list)
     committed: bool = False
+    # utility-coordination analysis: {"mode": "run" | "context", "refresh", "report_id", "check", "live"}
+    analysis: dict[str, Any] | None = None
+    voice_done: bool = False  # an analysis report: her spoken summary is over, the rest is written silently
+    settled: asyncio.Event = field(default_factory=asyncio.Event)  # the turn has ended (committed or not)
+    analysis_sheet: str | None = None  # the exact fact sheet in the prompt (for the grounding check)
+    build: dict[str, Any] = field(default_factory=dict)  # to rebuild the prompt once the analysis is ready
 
     def meta(self, model: str, voice: bool) -> dict[str, Any]:
         return {
@@ -86,6 +94,7 @@ class ChatPlan:
             "emotion_context": self.emotion_context,
             "turn_no": self.turn_no,
             "voice": voice,
+            "analysis": {k: v for k, v in (self.analysis or {}).items() if k in ("mode", "report_id")} or None,
         }
 
 
@@ -112,6 +121,8 @@ class Session:
         self._turn_no = 0
         self._last_note: str | None = None
         self._told_dominant: str | None = None  # what she saw when the learner last spoke
+        self.analysis: dict[str, Any] | None = None  # the utility-coordination report on screen (coord/)
+        self.coord_params: dict[str, Any] = {}  # the learner's thresholds for it (distance_m, window_days, area_m)
         self.last_active = clock()
 
     # ------------------------------------------------------------------ plumbing
@@ -181,7 +192,19 @@ class Session:
         """Generating or speaking — the learner's voice now counts as an interruption."""
         live = self.live_conn
         playing = bool(getattr(live, "client_playing", False)) if live is not None else False
-        return self._chat_plan is not None or self.speaker is not None or playing
+        plan = self._chat_plan
+        return (plan is not None and not plan.voice_done) or self.speaker is not None or playing
+
+    @property
+    def chat_plan(self) -> ChatPlan | None:
+        return self._chat_plan
+
+    @property
+    def writing_silently(self) -> bool:
+        """Her spoken summary of an analysis is over and the written report is still coming: the learner's
+        voice is not an interruption now (a question is answered once it is clear it is one)."""
+        plan = self._chat_plan
+        return plan is not None and plan.voice_done and not plan.cancel.is_set() and self.speaker is None
 
     def recent_assistant_text(self) -> str:
         if self._chat_plan is not None and self._chat_plan.text_so_far:
@@ -316,8 +339,19 @@ class Session:
         return self._describe(self.clock())
 
     # ------------------------------------------------------------------ chat turns
+    def analysis_messages(self, plan: ChatPlan, report: dict[str, Any] | None) -> list[dict[str, str]]:
+        """The prompt of an analysis turn once the analysis is ready (or failed)."""
+        b = plan.build
+        sheet = fact_sheet(report, mention=b["text"]) if report else None
+        plan.analysis_sheet = sheet
+        return build_messages(
+            self.messages, b["text"], subject=self.subject, emotion_context=b["ctx"],
+            history_turns=self.settings.llm_history_turns, name=self.settings.persona_name,
+            voice=b["voice"], analysis_sheet=sheet, analysis_mode=(plan.analysis or {}).get("mode"),
+        )
+
     def plan_chat(self, *, message: str | None, subject: str | None, source: str = "text",
-                  turn_no: int | None = None, speculative: bool = False) -> ChatPlan:
+                  turn_no: int | None = None, speculative: bool = False, analysis: bool = False) -> ChatPlan:
         if subject:
             self.subject = normalize_subject(subject)
         text = (message or "").strip()
@@ -335,6 +369,17 @@ class Session:
             ctx["unchanged"] = True  # she saw the same last time: don't make her comment again
             ctx["note"] = emotion_note(ctx)
         user_msg = {"id": new_id("m"), "role": "user", "text": text, "source": source, "created": started}
+        # the utility-coordination analysis: "run" it first, or answer from the one on screen ("context");
+        # anything else is ordinary tutoring even while an analysis is open
+        mode = None
+        asked = analysis or wants_analysis(text)
+        if self.analysis is None:
+            mode = "run" if asked else None
+        elif analysis or (asked and wants_rerun(text)):
+            mode = "run"
+        elif asked or about_analysis(text, self.analysis):
+            mode = "context"
+        sheet = fact_sheet(self.analysis, mention=text) if mode == "context" else None
         gate = asyncio.Event()
         if not speculative:
             gate.set()
@@ -346,7 +391,7 @@ class Session:
             llm_messages=build_messages(
                 self.messages, text, subject=self.subject, emotion_context=ctx,
                 history_turns=self.settings.llm_history_turns, name=self.settings.persona_name,
-                voice=source == "voice",
+                voice=source == "voice", analysis_sheet=sheet, analysis_mode=mode,
             ),
             emotion_context=ctx,
             epoch=self.epoch,
@@ -355,6 +400,11 @@ class Session:
             cancel=asyncio.Event(),
             gate=gate,
             started_ms=started,
+            analysis=({"mode": mode, "refresh": wants_refresh(text),
+                       "report_id": self.analysis["id"] if mode == "context" and self.analysis else None}
+                      if mode else None),
+            analysis_sheet=sheet,
+            build={"text": text, "ctx": ctx, "voice": source == "voice"},
         )
         self._chat_plan = plan
         self.touch()
@@ -365,6 +415,8 @@ class Session:
         plan.user_msg["text"] = final_text.strip() or plan.user_msg["text"]
         if plan.llm_messages and plan.llm_messages[-1]["role"] == "user":
             plan.llm_messages[-1]["content"] = plan.user_msg["text"]
+        if plan.build:
+            plan.build["text"] = plan.user_msg["text"]  # an analysis prompt is built from it later
         plan.gate.set()
 
     def discard_plan(self, plan: ChatPlan, reason: str = "discarded") -> None:
@@ -411,6 +463,8 @@ class Session:
             "emotion_context": plan.emotion_context,
             "interrupted": interrupted,
         }
+        if plan.analysis:
+            assistant["analysis"] = {k: v for k, v in plan.analysis.items() if k in ("mode", "report_id", "check", "live")}
         self.messages.extend([plan.user_msg, assistant])
         del self.messages[:-MAX_MESSAGES]
         self._chat_plan = None
@@ -462,6 +516,8 @@ class Session:
         self.sim_enabled = False
         self._last_note = None
         self._told_dominant = None
+        self.analysis = None
+        self.coord_params = {}
         self.touch()
         self.notify({"type": "reset", "epoch": self.epoch}, self.snapshot_message())
         return self.epoch

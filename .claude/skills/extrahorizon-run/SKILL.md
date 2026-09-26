@@ -17,6 +17,7 @@ server on :5173, which proxies `/api` (HTTP + WebSockets) to :8765.
 | Offline rehearsal (no keys / internet) | `.\scripts\start.ps1 -MockLLM -MockVoice` (labelled mock tutor, tone voice, scripted transcript) |
 | UI hot reload | `.\scripts\start.ps1 -Dev` → http://127.0.0.1:5173 |
 | First time on a machine | `.\scripts\setup.ps1` (uv sync, 3 model downloads, npm install + build, .env) |
+| Utility-coordination analysis without the internet | `$env:EH_COORD_OFFLINE_DIR="$PWD\backend\tests\fixtures\coord"` (from the repo root: an absolute path) before starting (labelled TEST FIXTURE); `uv run python scripts/coord_report.py [--offline]` in `backend/` prints it without the UI |
 
 macOS/Linux/Git Bash: `./scripts/*.sh` (`--mock-llm`, `--mock-voice`, `--dev`, `--open`).
 

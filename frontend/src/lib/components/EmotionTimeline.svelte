@@ -224,7 +224,7 @@
       </svg>
       {#if hover}
         <div class="tip" class:left={tipOnLeft} style:left="{tipLeft}px">
-          <div class="tip-head">{clock(hover[0])}{#if hover[2] === 'simulation'} · simulated{/if}{#if hoverMarker} · {hoverMarker.kind === 'emotion' ? `→ ${hoverMarker.label}` : hoverMarker.label}{/if}</div>
+          <div class="tip-head">{clock(hover[0])}{#if hover[2] === 'simulation'}{' · '}simulated{/if}{#if hoverMarker}{' · '}{hoverMarker.kind === 'emotion' ? `→ ${hoverMarker.label}` : hoverMarker.label}{/if}</div>
           {#if hoverRows.length}
             <div class="tip-grid">
               {#each hoverRows as r (r.k)}

@@ -58,6 +58,20 @@ class ChatRequest(BaseModel):
     session_id: str = Field(pattern=SESSION_ID_PATTERN)
     message: str | None = Field(default=None, max_length=4000)
     subject: str | None = Field(default=None, max_length=40)
+    analysis: bool = False  # run the utility-coordination analysis before answering
+
+
+class AnalyzeRequest(BaseModel):
+    session_id: str = Field(pattern=SESSION_ID_PATTERN)
+    refresh: bool = False  # read the county's data again instead of the cached copy
+    distance_m: float | None = Field(default=None, ge=0, le=5000)
+    window_days: int | None = Field(default=None, ge=0, le=3650)
+    area_m: float | None = Field(default=None, gt=0, le=20000)
+
+
+class RecheckRequest(BaseModel):
+    session_id: str = Field(pattern=SESSION_ID_PATTERN)
+    finding_id: str = Field(pattern=r"^F\d{1,6}$")
 
 
 class ResetRequest(BaseModel):
@@ -84,6 +98,7 @@ class Services:
     vision: VisionService
     stt_factory: Any = None
     vad_factory: Any = None
+    coord: Any = None  # utility-coordination analysis (coord/service.py)
     vad_ok: bool = False
     vad_reason: str | None = "starting"
 
@@ -167,12 +182,17 @@ def create_app(
     tts: TtsEngine | None = None,
     stt_factory: Any = None,
     vad_factory: Any = None,
+    coord: Any = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     llm = llm or create_llm(settings)
     vision = vision or VisionService(settings)
     tts = tts if tts is not None else create_tts(settings)
     services = Services(settings, llm, tts, FillerBank(tts, settings), vision, stt_factory, vad_factory)
+    if settings.coord_enabled:
+        from .coord.service import CoordService
+
+        services.coord = coord if coord is not None else CoordService(settings)
     store = SessionStore(settings)
     boot_id = secrets.token_hex(8)
 
@@ -216,6 +236,8 @@ def create_app(
                     await t
             await llm.aclose()
             await tts.aclose()
+            if services.coord is not None:
+                await services.coord.aclose()
             vision.shutdown()
 
     app = FastAPI(
@@ -313,6 +335,8 @@ def create_app(
             "stt": {"provider": settings.stt_provider, "model": settings.stt_model,
                     "configured": settings.stt_configured, "vad": services.vad_ok, "vad_reason": services.vad_reason},
             "fillers": services.fillers.state,
+            "coord": {"enabled": services.coord is not None,
+                      "offline": bool(services.coord is not None and services.coord.offline)},
             "sessions": len(store),
             "client": {"transport": transport(request.scope)},
         }
@@ -342,11 +366,11 @@ def create_app(
     @app.post("/api/chat")
     async def chat(req: ChatRequest) -> StreamingResponse:
         session = store.get_or_create(req.session_id)
-        plan = session.plan_chat(message=req.message, subject=req.subject, source="text")
+        plan = session.plan_chat(message=req.message, subject=req.subject, source="text", analysis=req.analysis)
         log.info("chat %s session=%s… chars=%d", plan.request_id, session.id[:8], len(plan.user_msg["text"]))
         # typed questions are answered in text over SSE and, if the voice socket is open,
         # spoken through it as well
-        runner = TurnRunner(session, plan, llm, settings, tts, session.live_conn)
+        runner = TurnRunner(session, plan, llm, settings, tts, session.live_conn, coord=services.coord)
 
         async def stream() -> AsyncIterator[bytes]:
             async for name, data in runner.events():
@@ -356,6 +380,79 @@ def create_app(
 
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # ------------------------------------------------------------------ utility-coordination analysis
+    def coord_service():
+        if services.coord is None:
+            raise ApiError(404, "analysis_disabled", "The utility-coordination analysis is turned off (EH_COORD_ENABLED).")
+        return services.coord
+
+    @app.get("/api/coord/catalog")
+    async def coord_catalog() -> dict[str, Any]:
+        from .coord.catalog import CONFLICTS, PUBLISHER, REGION, SOURCES
+
+        svc = coord_service()
+        return {
+            "region": REGION["name"], "publisher": PUBLISHER, "status": svc.status(),
+            "sources": [{"key": s.key, "title": s.title, "kind": s.kind, "utility": s.utility, "url": s.url,
+                         "item_url": s.item_url} for s in SOURCES],
+            "conflicts": {"key": CONFLICTS.key, "title": CONFLICTS.title, "url": CONFLICTS.url,
+                          "item_url": CONFLICTS.item_url},
+            "defaults": {"distance_m": settings.coord_distance_m, "window_days": settings.coord_window_days,
+                         "area_m": settings.coord_area_m},
+        }
+
+    @app.post("/api/coord/analyze")
+    async def coord_analyze(req: AnalyzeRequest) -> dict[str, Any]:
+        from .coord.arcgis import SourceError
+
+        svc = coord_service()
+        session = store.get_or_create(req.session_id)
+        rules = {**session.coord_params}
+        for k in ("distance_m", "window_days", "area_m"):
+            v = getattr(req, k)
+            if v is not None:
+                rules[k] = v
+        epoch = session.epoch
+        try:
+            report = await svc.analyze(svc.params(rules), refresh=req.refresh)
+        except SourceError as e:
+            raise ApiError(502, "analysis_source", f"The county's data could not be read: {e.message}") from e
+        if session.epoch != epoch:  # "New session" while it ran: the old session's analysis is gone
+            raise ApiError(409, "session_reset", "The session was reset while the analysis ran.")
+        session.coord_params = rules  # remembered only once they produced an analysis
+        session.analysis = report
+        return report
+
+    @app.get("/api/coord/report")
+    async def coord_report(session_id: str) -> dict[str, Any]:
+        if not _SESSION_ID_RE.match(session_id):
+            raise ApiError(422, "bad_session_id", "Invalid session id.")
+        session = store.get(session_id)
+        if session is None or session.analysis is None:
+            raise ApiError(404, "no_analysis", "No analysis in this session yet.")
+        return session.analysis
+
+    @app.delete("/api/coord/report")
+    async def coord_close(session_id: str) -> dict[str, Any]:
+        if not _SESSION_ID_RE.match(session_id):
+            raise ApiError(422, "bad_session_id", "Invalid session id.")
+        session = store.get(session_id)
+        if session is not None:
+            session.analysis = None
+        return {"ok": True}
+
+    @app.post("/api/coord/recheck")
+    async def coord_recheck(req: RecheckRequest) -> dict[str, Any]:
+        """Read both projects of a finding again from the county's service now and compare."""
+        svc = coord_service()
+        session = store.get(req.session_id)
+        if session is None or session.analysis is None:
+            raise ApiError(404, "no_analysis", "No analysis in this session yet.")
+        try:
+            return await svc.recheck(session.analysis, req.finding_id)
+        except KeyError as e:
+            raise ApiError(404, "no_finding", f"No finding {req.finding_id} in this analysis.") from e
 
     @app.websocket("/api/vision")
     async def vision_socket(ws: WebSocket) -> None:
