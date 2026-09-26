@@ -1,6 +1,6 @@
 ---
 name: extrahorizon-run
-description: Start, stop, restart and health-check the ExtraHorizon voice tutor (FastAPI backend on :8765 serving the built SvelteKit UI, or the Vite dev server on :5173). Use this whenever you need to run the app, see a change in the browser, reproduce a bug, check /api/health, open the UI in the browser pane, switch to the offline mock LLM / mock voice, or when the server "does not start", the port is busy, the UI shows "backend offline", vision says "unavailable", voice is silent, the microphone fails, or chat returns llm_not_configured — even if the user just says "запусти", "run it", "покажи", "перезапусти сервер".
+description: Start, stop, restart and health-check the ExtraHorizon voice tutor (FastAPI backend on :8765 serving the built SvelteKit UI, or the Vite dev server on :5173). Use this whenever you need to run the app, see a change in the browser, reproduce a bug, check /api/health, open the UI in the browser pane, switch to the offline mock LLM / mock voice, or when the server "does not start", the port is busy (8765 locally, 8080 for the remote demo host), the UI shows "backend offline", vision says "unavailable", voice is silent, the microphone fails, or chat returns llm_not_configured — even if the user just says "запусти", "run it", "покажи", "перезапусти сервер".
 ---
 
 # Running ExtraHorizon
@@ -55,6 +55,12 @@ Open http://127.0.0.1:8765 in the browser pane. The pane cannot use the camera o
 toggle in the pane before sending questions** (otherwise her voice plays on the user's speakers). The real camera
 and microphone paths are exercised by Playwright with virtual devices (see extrahorizon-test) and by
 `backend/scripts/demo_check.py --speech …wav`. Never turn on the user's physical webcam or microphone without asking.
+
+## Remote demo host (home PC behind Cloudflare Tunnel)
+
+`.\scripts\demo-host.ps1` serves on `127.0.0.1:8080` for the tunnel (auto-restart, keeps the PC awake);
+`-Check` for its state. Opening `http://127.0.0.1:8080` on the PC itself needs no key; the public URL does.
+Everything about the tunnel, the access key and remote troubleshooting: the `extrahorizon-remote-demo` skill.
 
 ## Known gotchas
 

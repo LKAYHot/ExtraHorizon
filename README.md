@@ -36,6 +36,22 @@ Variants: `-MockLLM` (labelled offline scripted tutor) · `-MockVoice` (offline 
 instead of Fish Audio, a scripted transcript) · `-Dev` (Vite hot reload on http://127.0.0.1:5173) ·
 `uv run extrahorizon --help` in `backend/`.
 
+## Remote demo: the PC at home, the laptop anywhere
+
+The laptop only needs a browser: the PC runs everything heavy and is reached through **Cloudflare
+Tunnel**, protected by an access key.
+
+```powershell
+.\scripts\demo-host.ps1 -PublicUrl https://demo.example.com   # once: remembers the URL, creates the access key
+.\scripts\demo-host.ps1 -ShowKey                               # the key to type on the laptop
+.\scripts\demo-host.ps1 -Check                                 # server, tunnel, public URL, key, sleep settings
+.\scripts\demo-host.ps1 -Install                               # optional: start it automatically at logon
+```
+
+The tunnel's public hostname must point to `http://127.0.0.1:8080`. Setup, security model, privacy
+differences (Cloudflare relays the camera and microphone traffic) and troubleshooting:
+[docs/REMOTE_DEMO.md](docs/REMOTE_DEMO.md).
+
 ## The 60–90 s demo
 
 1. Open the app → **Turn on camera** (the card explains the data path) → look at the screen with a relaxed
@@ -107,12 +123,16 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
   never images or video. The camera starts only after an explicit click on a card that says so.
 * **Stored:** nothing. Sessions live in memory; *New session* or stopping the backend deletes them.
 * The API keys live only in the git-ignored `.env`, read by the backend; never sent to the browser or logged.
+* **Remote demo (Cloudflare Tunnel):** camera frames and microphone audio travel from the laptop over HTTPS to
+  **Cloudflare**, which decrypts and re-encrypts them into the tunnel to the presenter's PC — analysed there in
+  memory as above; the app then shows this wording instead of "stays on this computer", and asks for an access key.
 
 ## Tests
 
 ```powershell
 .\scripts\test.ps1 -E2E      # pytest + vitest + svelte-check + build + Playwright (virtual camera AND virtual microphone)
 cd backend; uv run python scripts/demo_check.py --runs 3 --speech ..\frontend\e2e\.cache\question.wav   # live, real providers
+cd backend; uv run python scripts/demo_check.py --base https://demo.example.com --access-key-env           # … through the tunnel
 ```
 
 Results and the manual matrix (pass / fail / not tested): [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md).
@@ -122,7 +142,8 @@ Results and the manual matrix (pass / fail / not tested): [docs/TEST_MATRIX.md](
 Every threshold and timing is an environment variable (`EH_*`) with defaults in
 `backend/extrahorizon/config.py`; the annotated list is in [.env.example](.env.example) — e.g.
 `EH_VAD_END_SILENCE_MS` (how fast she answers), `EH_BARGE_IN_*` (how easily you interrupt her),
-`EH_VOICE_MERGE_WINDOW_S`, `EH_EMOTION_SENSITIVITY` / `EH_EMOTION_CALIBRATION_S` / other `EH_EMOTION_*`, `EH_FISH_*`.
+`EH_VOICE_MERGE_WINDOW_S`, `EH_EMOTION_SENSITIVITY` / `EH_EMOTION_CALIBRATION_S` / other `EH_EMOTION_*`, `EH_FISH_*`,
+and for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`.
 
 ## Troubleshooting
 

@@ -57,7 +57,7 @@
         <div class="consent" data-testid="mic-consent">
           <p class="lead"><Mic size={14} /> Talk to {app.persona} hands-free</p>
           <ul>
-            <li>Your microphone audio goes to {app.local ? "this computer's ExtraHorizon backend, where speech is detected locally" : `the ExtraHorizon backend at ${location.host}, where speech is detected`} (Silero VAD).</li>
+            <li>Your microphone audio goes to {app.local ? "this computer's ExtraHorizon backend, where speech is detected locally" : app.viaTunnel ? "the ExtraHorizon server on the presenter's computer (over HTTPS through Cloudflare Tunnel), where speech is detected" : `the ExtraHorizon backend at ${location.host}, where speech is detected`} (Silero VAD).</li>
             <li>Only the parts where you speak are sent to <strong>OpenAI</strong> for transcription (gpt-live-transcribe). Nothing is recorded or stored.</li>
             <li>Speak over her to interrupt; say “wait, stop” to just make her stop. Headphones avoid echo.</li>
           </ul>
@@ -122,7 +122,7 @@
       <ArrowUp size={18} strokeWidth={2.4} />
     </button>
   </div>
-  <p class="fine">Answers: OpenAI · voice: Fish Audio · speech-to-text: OpenAI. Camera frames {app.local ? 'stay on this computer' : 'go to the ExtraHorizon backend'} — only a short text description of your expression reaches the model.</p>
+  <p class="fine">Answers: OpenAI · voice: Fish Audio · speech-to-text: OpenAI. Camera frames {app.local ? 'stay on this computer' : app.viaTunnel ? "go to the presenter's ExtraHorizon server via Cloudflare Tunnel" : 'go to the ExtraHorizon backend'} — only a short text description of your expression reaches the model.</p>
 </div>
 
 <style>

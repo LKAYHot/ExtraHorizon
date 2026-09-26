@@ -14,6 +14,8 @@ camera must be rehearsed by a person (see docs/TEST_MATRIX.md).
     cd backend
     uv run python scripts/demo_check.py --runs 3
     uv run python scripts/demo_check.py --speech ../frontend/e2e/.cache/question.wav
+    # the remote demo, through the tunnel (logs in with EH_ACCESS_KEY from .env, never prints it):
+    uv run python scripts/demo_check.py --base https://demo.example.com --access-key-env
 """
 
 from __future__ import annotations
@@ -21,12 +23,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import socket
 import statistics
 import struct
 import sys
 import time
 import uuid
 import wave
+from pathlib import Path
 
 import httpx
 import numpy as np
@@ -74,14 +79,15 @@ class VisionSim:
     """Keeps the vision socket open (closing it = no camera = no note) and drives the
     labelled simulation at 10 Hz in the background."""
 
-    def __init__(self, base_ws: str, sid: str, emotion: str) -> None:
+    def __init__(self, base_ws: str, sid: str, emotion: str, headers: dict | None = None) -> None:
         self.url = f"{base_ws}/api/vision?session_id={sid}"
         self.emotion = emotion
+        self.headers = headers or {}
         self.note: dict | None = None
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        self.ws = await connect(self.url)
+        self.ws = await connect(self.url, additional_headers=self.headers)
         self._task = asyncio.create_task(self._run())
 
     async def _run(self) -> None:
@@ -115,18 +121,57 @@ def load_speech(path: str) -> bytes:
     return y.astype("<i2").tobytes()
 
 
-async def one_run(base: str, question: str, speech: bytes | None) -> dict:
+def access_key_from_env() -> str:
+    """EH_ACCESS_KEY from the environment or the repo's .env (never printed)."""
+    if os.environ.get("EH_ACCESS_KEY"):
+        return os.environ["EH_ACCESS_KEY"].strip()
+    env = Path(__file__).resolve().parents[2] / ".env"
+    for line in env.read_text(encoding="utf-8").splitlines() if env.exists() else []:
+        if line.strip().startswith("EH_ACCESS_KEY="):
+            return line.split("=", 1)[1].strip().strip("'\"")
+    raise SystemExit("no EH_ACCESS_KEY in the environment or .env")
+
+
+def pin_dns(spec: str) -> None:
+    """--resolve host:ip — connect to ip for host (TLS name and Host header unchanged)."""
+    host, ip = spec.rsplit(":", 1)
+    original = socket.getaddrinfo
+
+    def patched(h, *args, **kwargs):
+        name = h.decode("idna") if isinstance(h, bytes) else h  # anyio passes IDNA bytes
+        return original(ip if name == host else h, *args, **kwargs)
+
+    socket.getaddrinfo = patched
+
+
+async def login(client: httpx.AsyncClient, base: str, key: str | None) -> dict:
+    """The remote demo's access gate: returns the cookie header for the WebSockets."""
+    access = await client.get(f"{base}/api/access")
+    if access.status_code == 404 or not access.json().get("required"):
+        return {}
+    if not key:
+        raise SystemExit(f"{base} asks for the access key — add --access-key-env")
+    r = await client.post(f"{base}/api/access", json={"key": key})
+    if r.status_code != 200:
+        raise SystemExit(f"access key refused: {r.json().get('code')}")
+    return {"Cookie": f"eh_access={client.cookies.get('eh_access')}"}
+
+
+async def one_run(base: str, question: str, speech: bytes | None, key: str | None = None) -> dict:
     base_ws = base.replace("http", "ws", 1)
     sid = str(uuid.uuid4())
     out: dict = {}
     async with httpx.AsyncClient(timeout=90) as client:
+        headers = await login(client, base, key)
         health = (await client.get(f"{base}/api/health?deep=1")).json()
         out["health"] = {k: health[k] for k in ("llm", "tts", "stt", "vision", "fillers")}
-        live = LiveSocket(await connect(f"{base_ws}/api/live?session_id={sid}", max_size=2**24))
+        out["transport"] = (health.get("client") or {}).get("transport")
+        live = LiveSocket(await connect(f"{base_ws}/api/live?session_id={sid}", max_size=2**24,
+                                        additional_headers=headers))
         await live.wait(lambda m: m["type"] == "hello")
         await live.ws.send(json.dumps({"type": "voice_out", "on": True}))
         # the expression (labelled simulation) → the note that will be added to the prompt
-        sim = VisionSim(base_ws, sid, "happiness")
+        sim = VisionSim(base_ws, sid, "happiness", headers)
         await sim.start()
         await asyncio.sleep(2.5)
         out["note"] = (sim.note or {}).get("note")
@@ -181,17 +226,38 @@ async def one_run(base: str, question: str, speech: bytes | None) -> dict:
     return out
 
 
+def _quiet_windows_socket_teardown() -> None:
+    """Windows' Proactor loop reports sockets reset while closing (WinError 10022/10053/10054) as
+    unhandled errors — harmless at the end of a run; everything else is still reported."""
+    loop = asyncio.get_running_loop()
+
+    def handler(lp, context):
+        exc = context.get("exception")
+        if isinstance(exc, OSError) and getattr(exc, "winerror", None) in (10022, 10053, 10054):
+            return
+        lp.default_exception_handler(context)
+
+    loop.set_exception_handler(handler)
+
+
 async def main() -> int:
+    _quiet_windows_socket_teardown()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--base", default="http://127.0.0.1:8765")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--question", default="Explain recursion to me.")
     ap.add_argument("--speech", help="optional WAV with a spoken question (mic path)")
+    ap.add_argument("--access-key-env", action="store_true",
+                    help="remote demo: log in with EH_ACCESS_KEY from the environment or .env (never printed)")
+    ap.add_argument("--resolve", help="host:ip — use this address for host (e.g. when this PC's DNS is stale)")
     a = ap.parse_args()
+    if a.resolve:
+        pin_dns(a.resolve)
+    key = access_key_from_env() if a.access_key_env else None
     speech = load_speech(a.speech) if a.speech else None
     results = []
     for i in range(a.runs):
-        r = await one_run(a.base, a.question, speech)
+        r = await one_run(a.base.rstrip("/"), a.question, speech, key)
         results.append(r)
         print(f"run {i + 1}: {json.dumps({k: v for k, v in r.items() if k != 'health'}, ensure_ascii=False)}")
     h = results[0]["health"]

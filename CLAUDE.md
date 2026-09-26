@@ -17,11 +17,12 @@ Project skills (use them — they hold the procedures and the invariants):
 - `extrahorizon-voice` — voice pipeline debugging and tuning (latency, barge-in, echo, STT, Fish).
 - `extrahorizon-vision-tuning` — the calibrated facial-expression estimate on a real webcam (ask before turning it on).
 - `extrahorizon-demo-rehearsal` — the 60–90 s script, fallbacks, manual matrix, honest claims.
+- `extrahorizon-remote-demo` — the home PC behind Cloudflare Tunnel (`scripts/demo-host.ps1`), the access key, remote troubleshooting.
 
 Hard rules:
 
-- API keys (`OPENAI_API_KEY`, `FISH_API_KEY`) live only in the git-ignored `.env`. Never print, log, commit or send them anywhere; check with `len(...)` only. Hooks in `.githooks/` and `backend/tests/test_secrets.py` enforce this.
+- API keys (`OPENAI_API_KEY`, `FISH_API_KEY`) and the remote-demo access key (`EH_ACCESS_KEY`) live only in the git-ignored `.env`. Never print, log, commit or send them anywhere; check with `len(...)` only. Hooks in `.githooks/` and `backend/tests/test_secrets.py` enforce this.
 - Never turn on the user's physical webcam or microphone without asking. In the browser pane, mute the speaker toggle before sending questions (her voice would play on the user's speakers).
-- Keep UI, README, pitch and `EXTERNAL_DEPENDENCIES.md` truthful about data flow (localhost frames; speech segments → OpenAI transcription; text + words-only expression note → OpenAI chat; answer text → Fish Audio; MediaPipe usage metrics → Google). Update `EXTERNAL_DEPENDENCIES.md` whenever an external dependency, model, asset, service or AI tool changes.
+- Keep UI, README, pitch and `EXTERNAL_DEPENDENCIES.md` truthful about data flow (localhost frames; speech segments → OpenAI transcription; text + words-only expression note → OpenAI chat; answer text → Fish Audio; MediaPipe usage metrics → Google; in the remote demo everything between the laptop and the PC → Cloudflare). Update `EXTERNAL_DEPENDENCIES.md` whenever an external dependency, model, asset, service or AI tool changes.
 - Simulation input must stay labelled; unknown must never become "neutral"; nothing is reported before calibration; the prompt note must contain no numbers and describes how the learner *looks* (her view on the call), never what they feel; the UI keeps labelling every reading as an estimate.
 - Commit or push only when the user asks.

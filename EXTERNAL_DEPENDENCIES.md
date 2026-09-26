@@ -22,6 +22,7 @@ Node.js 24.19.0). Direct dependencies are pinned by `backend/uv.lock` and
 | **EmotiEffLib `enet_b0_8_va_mtl`** (ONNX) | ML model (facial expression) | locally, CPU | a face crop of the camera frame (in memory only) |
 | **Silero VAD v5** (ONNX) | ML model (voice activity) | locally, CPU | microphone audio (in memory only) |
 | **Google MediaPipe Tasks usage metrics** | telemetry built into the MediaPipe wheel | Google servers | usage/performance metrics — per Google not images (see §4) |
+| **Cloudflare Tunnel** + `cloudflared` (only for the remote demo; the owner's Cloudflare account) | HTTPS reverse tunnel / CDN edge | Cloudflare edge + a Windows service on the presenter's PC | **all traffic between the demo laptop and the PC**: camera frames, microphone audio, chat text, her voice — TLS terminates at Cloudflare's edge, which re-encrypts it into the tunnel (see §3a) |
 | Python libraries (FastAPI, uvicorn, pydantic, openai, numpy, mediapipe, OpenCV, onnxruntime, ormsgpack, websockets, …) | code | locally | — |
 | JavaScript libraries (Svelte, SvelteKit, Vite, lucide, markdown-it) | code | browser / build | — |
 | MediaPipe test portrait; a Windows system voice (SAPI) | test assets generated/downloaded at test time, not committed | locally | — |
@@ -29,7 +30,8 @@ Node.js 24.19.0). Direct dependencies are pinned by `backend/uv.lock` and
 | Claude Code (Anthropic, model Claude Opus 5.5) | AI coding assistant used to build the project | development only | the repository contents during development |
 
 Nothing else is contacted at runtime: no analytics of our own, no external fonts or CDNs
-(system fonts only), no accounts, no cloud storage, no database.
+(system fonts only), no accounts, no cloud storage, no database. Cloudflare is in the path only when
+the remote demo is used (§3a); a local run never touches it.
 
 ---
 
@@ -60,6 +62,24 @@ Nothing else is contacted at runtime: no analytics of our own, no external fonts
 * **Data sent:** the tutor's answer text as it streams (cut into sentence/clause chunks, markdown and code removed, voice cues kept) and, once at start-up, nine short filler phrases ("Hmm...", "Uhh... let me see.", "Hmph." …) whose audio is cached locally in `backend/cache/fillers/` (git-ignored) so they play instantly.
 * **Key:** `FISH_API_KEY` in the git-ignored `.env`, same protections as the OpenAI key. `EH_TTS_PROVIDER=mock` / `--mock-voice` replaces the voice with a labelled offline tone (tests).
 * Use of Fish Audio is subject to Fish Audio's terms of service; rights to the selected voice model are governed by its owner's settings on Fish Audio.
+
+## 3a. Remote demo only: Cloudflare Tunnel
+
+* **What:** the presenter's PC runs ExtraHorizon on `127.0.0.1` and Cloudflare's `cloudflared` connector (a
+  Windows service, installed and configured by the owner in their own Cloudflare account — not bundled with the
+  project). The demo laptop opens the public HTTPS name; Cloudflare's edge forwards the traffic through the tunnel.
+  Setup and security model: `docs/REMOTE_DEMO.md`; runner: `scripts/demo-host.ps1`.
+* **Data it sees:** everything the laptop's browser exchanges with the PC — camera frames (JPEG, ≤ 8 fps), the
+  microphone stream (PCM16), chat text, the tutor's voice audio, the access-key login. TLS is terminated at
+  Cloudflare's edge (Cloudflare can technically read the traffic) and re-encrypted into the tunnel. Cloudflare
+  adds request headers such as `CF-Connecting-IP`, which ExtraHorizon uses to recognise remote browsers.
+* **Honest wording:** as soon as the server reports the Cloudflare transport, the privacy card, the camera and
+  microphone consent texts and the status line say that frames and audio travel through Cloudflare to the
+  presenter's computer; the "video stays on this device" claim is never shown remotely.
+* **Protection:** an access key (`EH_ACCESS_KEY`, git-ignored, secret-guarded) → a signed HttpOnly cookie; brute-force
+  brake; same-origin checks. Recommended in addition: Cloudflare Access (Zero Trust) email policy on the hostname.
+* **Terms:** Cloudflare's own terms/privacy policy apply to the owner's account; ExtraHorizon adds no Cloudflare
+  code, SDK or account of its own.
 
 ## 4. Local ML models
 
@@ -142,7 +162,11 @@ Python 3.14.7 (CPython, managed by uv) · uv 0.12.5 · Node.js 24.19.0 / npm 11.
 Git 2.55 · Microsoft Edge (for Playwright) · PowerShell / Git Bash (scripts).
 Chromium flags used only in tests: `--use-fake-ui-for-media-stream`,
 `--use-fake-device-for-media-stream`, `--use-file-for-fake-video-capture`,
-`--use-file-for-fake-audio-capture`, `--autoplay-policy=no-user-gesture-required`.
+`--use-file-for-fake-audio-capture`, `--autoplay-policy=no-user-gesture-required`,
+`--host-resolver-rules` (development check through the real tunnel while the PC's DNS cache was stale).
+Windows tools used by `scripts/demo-host.ps1`: Task Scheduler (optional autostart), `powercfg` (read-only
+sleep check), `curl.exe` and `Resolve-DnsName` (public URL check), `SetThreadExecutionState` (keeps the PC
+awake only while the demo host runs).
 
 ## 8. Assets used only for testing and development
 
@@ -169,7 +193,7 @@ No data or code from these works is used beyond the models listed in §4.
 
 ## 11. AI assistance used to build ExtraHorizon
 
-* **Claude Code** (Anthropic's agentic coding tool, desktop app) running **Claude Opus 5.5** (`claude-opus-5-5`) designed and wrote the backend, frontend, tests, scripts, documentation and the project skills in `.claude/skills/`, following the team's implementation brief (`ExtraHorizon_ShellHacks_Implementation_Prompt.md`) and the owner's follow-up requirements (emotion recognition and visualisation, Fish Audio voice with emotion cues, the tsundere persona, real-time voice with interruptions and fillers; then per-person emotion calibration, microphone selection and the persona's video-call behaviour). It ran the tests, the model and provider measurements, the browser checks and the live voice probes reported here. To reproduce a false "angry" reading, it analysed two screenshots of the camera panel that the owner shared in the chat, with the local models only; the images and crops are not part of the repository.
+* **Claude Code** (Anthropic's agentic coding tool, desktop app) running **Claude Opus 5.5** (`claude-opus-5-5`) designed and wrote the backend, frontend, tests, scripts, documentation and the project skills in `.claude/skills/`, following the team's implementation brief (`ExtraHorizon_ShellHacks_Implementation_Prompt.md`) and the owner's follow-up requirements (emotion recognition and visualisation, Fish Audio voice with emotion cues, the tsundere persona, real-time voice with interruptions and fillers; then per-person emotion calibration, microphone selection and the persona's video-call behaviour; then styled select boxes and the remote demo through Cloudflare Tunnel with an access key). It ran the tests, the model and provider measurements, the browser checks and the live voice probes reported here. To reproduce a false "angry" reading, it analysed two screenshots of the camera panel that the owner shared in the chat, with the local models only; the images and crops are not part of the repository.
 * Independent Claude sub-agents performed read-only code reviews; confirmed findings were fixed and re-tested.
 * Claude Code skills used during development: *dataviz* (palette + validator + chart rules), *skill-creator* (format of the project skills).
 * At runtime the answers are generated by OpenAI (§2) and voiced by Fish Audio (§3); no Anthropic model is called by the app.

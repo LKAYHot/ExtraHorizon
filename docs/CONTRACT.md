@@ -1,4 +1,4 @@
-# ExtraHorizon — API & message contract (v2.1: calibrated emotions + voice)
+# ExtraHorizon — API & message contract (v2.2: calibrated emotions + voice + remote access)
 
 The single source of truth for everything that crosses the frontend ⇄ backend boundary.
 Change it **first**, then both sides, then the tests (`backend/tests/test_api.py`,
@@ -9,6 +9,7 @@ in the demo build FastAPI serves the UI and the API from one origin.
 
 | Route | Purpose |
 |---|---|
+| `GET /api/access` · `POST /api/access` · `DELETE /api/access` | remote access: status · log in with the key · log out |
 | `GET  /api/health` (`?deep=1` also pings the LLM) | status of every component |
 | `POST /api/chat` → `text/event-stream` | a typed question (also spoken on the live socket if open) |
 | `POST /api/session/interrupt` | stop button without the live socket |
@@ -27,8 +28,22 @@ in the demo build FastAPI serves the UI and the API from one origin.
 * One vision socket and one live socket per session: a newer socket supersedes the older one
   (`{"type":"superseded"}`, close code 4001). When the vision socket closes the expression becomes *unknown*
   (`vision_disconnected`) and simulation is switched off; when the live socket closes a spoken turn in flight is cancelled.
-* Host/Origin: loopback names always; other machines only via explicit `EH_ALLOWED_HOSTS` + `EH_ALLOWED_ORIGINS`
-  (never `*`). Cross-site HTTP gets 403; cross-site WebSockets are refused.
+* Host/Origin: loopback names always, plus the host of `EH_PUBLIC_URL`; other machines only via explicit
+  `EH_ALLOWED_HOSTS` + `EH_ALLOWED_ORIGINS` (never `*`). Cross-site HTTP gets 403; cross-site WebSockets are refused.
+
+## Remote access (`/api/access`, docs/REMOTE_DEMO.md)
+
+* **Transport** of a request: `local` (loopback peer, no proxy header, loopback `Host`) · `cloudflare`
+  (`CF-Connecting-IP`/`CF-Ray` present — Cloudflare Tunnel's requests also arrive from 127.0.0.1) · `proxy`
+  (`X-Forwarded-For`/`X-Real-IP`/`Forwarded`) · `network` (another machine directly).
+* Every non-`local` request to `/api/*` (except `/api/access`) and both WebSockets need the access cookie:
+  HTTP → `401 {"code":"access_required"}`; WebSocket → closed before accept (code 4401; browsers see 1006).
+  Without `EH_ACCESS_KEY` on the server: `403 {"code":"remote_disabled"}` / close 4403. Static UI files stay public.
+* `GET /api/access` → `{"required": bool, "ok": bool, "configured": bool, "transport": "local|cloudflare|proxy|network", "public_url": "https://…"|null}`.
+* `POST /api/access {"key": "…"}` (same origin) → `200` + `Set-Cookie: eh_access=v1.<issued>.<HMAC>; HttpOnly; Secure (https);
+  SameSite=Strict; Max-Age=14 days` · `401 wrong_key` · `429 too_many_attempts {retry_after_s}` + `Retry-After`
+  (8 wrong keys per client, 60 overall, per 10 min) · `403 remote_disabled`. A local request gets `ok` without a cookie.
+* `DELETE /api/access` → clears the cookie.
 
 ## `GET /api/health`
 
@@ -43,7 +58,8 @@ in the demo build FastAPI serves the UI and the API from one origin.
              "state": "ok|degraded|down|off", "last_error": null, "warm": 1},
   "stt":    {"provider": "openai", "model": "gpt-live-transcribe", "configured": true, "vad": true, "vad_reason": null},
   "fillers": "idle|preparing|ready|failed",
-  "sessions": 1
+  "sessions": 1,
+  "client": {"transport": "local|cloudflare|proxy|network"}   // how THIS request arrived
 }
 ```
 
@@ -94,12 +110,14 @@ Client → server:
 * `{"type":"calibrate"}` — learn the learner's relaxed face again (Recalibrate button).
 * `{"type":"sensitivity","level":"calm|balanced|expressive"}` — sent on every connect (the learner's choice wins over
   the server default) and when changed; unknown levels are ignored.
-* `{"type":"ping","t":…}`.
+* `{"type":"ping","t":…}` — the browser sends one every 20 s (proxies close silent WebSockets after ~100 s).
 
 Server → client:
 
 ```jsonc
 {"type": "hello", "session_id": "…", "boot_id": "…", "server_time": 1790…, "client_is_loopback": true,
+ "transport": "local|cloudflare|proxy|network",   // client_is_loopback = transport is "local"
+ // config: a remote browser gets max_fps ≤ EH_REMOTE_MAX_FPS (8) and jpeg_quality ≤ EH_REMOTE_JPEG_QUALITY (0.7)
  "vision": {"available": true, "reason": null, "model": "…", "emotion_model": "…"},
  "config": {…health emotion…, "max_fps": 12, "frame_width": 480, "jpeg_quality": 0.8}}
 {"type": "snapshot", "epoch": 3, "timeline": {...}, "emotion": {...}|null, "context": {...}, "sim": {"enabled": false},

@@ -218,14 +218,13 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .btn.danger { background: var(--sheen), color-mix(in srgb, var(--error) 14%, var(--raise)); border-color: color-mix(in srgb, var(--error) 34%, transparent); color: var(--error); }
 
 /* ------------------------------------------------------------ fields */
-.input, .select {
+.input {
   height: 34px; padding: 0 11px;
   background: var(--sheen-well), var(--well); border: 1px solid var(--edge); border-radius: var(--radius-xs);
   color: var(--text); outline: none; min-width: 0; box-shadow: var(--sink);
   transition: border-color var(--t2) var(--ease), box-shadow var(--t2) var(--ease);
 }
-.input:focus, .select:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: var(--sink), 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
-option { background: var(--surface-2); color: var(--text); }
+.input:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: var(--sink), 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 
 /* switch */
 .switch { position: relative; display: inline-flex; width: 36px; height: 20px; flex: 0 0 auto; }

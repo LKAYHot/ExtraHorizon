@@ -13,8 +13,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request, WebSocket
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,6 +24,17 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
+from .access import (
+    COOKIE,
+    AccessGuard,
+    AccessTokens,
+    LoginLimiter,
+    client_ip,
+    cookie_token,
+    headers_of,
+    is_https,
+    transport,
+)
 from .config import SILERO_VAD, Settings, get_settings
 from .llm import BaseLLM, create_llm
 from .live_ws import LiveConnection
@@ -50,6 +62,10 @@ class ChatRequest(BaseModel):
 
 class ResetRequest(BaseModel):
     session_id: str = Field(pattern=SESSION_ID_PATTERN)
+
+
+class AccessRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=256)
 
 
 # ---------------------------------------------------------------------- helpers
@@ -216,11 +232,20 @@ def create_app(
     allowed_origins = dev_origins | set(settings.allowed_origins)
     wildcard_bind = settings.host in ("0.0.0.0", "::")
     allowed_hosts = ["127.0.0.1", "localhost", "::1", "[::1]", "testserver", *settings.allowed_hosts]
+    if settings.public_url:  # the remote demo's public name (e.g. behind Cloudflare Tunnel)
+        allowed_origins.add(settings.public_url)
+        allowed_hosts.append(urlsplit(settings.public_url).hostname or "")
     if not wildcard_bind:
         allowed_hosts.append(settings.host)
     elif not settings.allowed_hosts:
         log.warning("bound to %s but EH_ALLOWED_HOSTS is empty: requests from other machines will be rejected "
                     "(set EH_ALLOWED_HOSTS / EH_ALLOWED_ORIGINS explicitly; '*' is never used)", settings.host)
+    tokens = (AccessTokens(settings.access_key.get_secret_value().strip(), settings.access_cookie_days * 86400)
+              if settings.access_configured else None)
+    limiter = LoginLimiter()
+    if settings.public_url and tokens is None:
+        log.warning("EH_PUBLIC_URL is set but EH_ACCESS_KEY is not: remote requests will be refused")
+    app.add_middleware(AccessGuard, tokens=tokens)
     app.add_middleware(CORSMiddleware, allow_origins=sorted(allowed_origins), allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(OriginGuard, allowed=allowed_origins)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
@@ -229,9 +254,50 @@ def create_app(
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
         return JSONResponse({"code": exc.code, "message": exc.message}, status_code=exc.status)
 
+    # ------------------------------------------------------------------ remote access
+    def access_state(request: Request) -> dict[str, Any]:
+        h = headers_of(request.scope)
+        how = transport(request.scope, h)
+        remote = how != "local"
+        ok = not remote or (tokens is not None and tokens.valid(cookie_token(h)))
+        return {"required": remote, "ok": ok, "configured": tokens is not None, "transport": how,
+                "public_url": settings.public_url}
+
+    @app.get("/api/access")
+    async def access_status(request: Request) -> dict[str, Any]:
+        return access_state(request)
+
+    @app.post("/api/access")
+    async def access_login(req: AccessRequest, request: Request, response: Response) -> dict[str, Any]:
+        state = access_state(request)
+        if not state["required"]:
+            return {**state, "ok": True}
+        if tokens is None:
+            raise ApiError(403, "remote_disabled", "Remote access is disabled on this server (EH_ACCESS_KEY is not set).")
+        ip = client_ip(request.scope)
+        wait = limiter.retry_after(ip)
+        if wait > 0:
+            return JSONResponse({"code": "too_many_attempts", "message": "Too many wrong keys — try again later.",
+                                 "retry_after_s": int(wait) + 1}, status_code=429,
+                                headers={"Retry-After": str(int(wait) + 1)})
+        if not tokens.check_key(req.key.strip()):
+            limiter.failed(ip)
+            log.warning("wrong access key from %s (%s)", ip, state["transport"])
+            raise ApiError(401, "wrong_key", "That key is not right.")
+        limiter.succeeded(ip)
+        log.info("remote access granted to %s (%s)", ip, state["transport"])
+        response.set_cookie(COOKIE, tokens.issue(), max_age=int(tokens.max_age_s), httponly=True,
+                            secure=is_https(request.scope), samesite="strict", path="/")
+        return {**state, "ok": True}
+
+    @app.delete("/api/access")
+    async def access_logout(request: Request, response: Response) -> dict[str, Any]:
+        response.delete_cookie(COOKIE, path="/", secure=is_https(request.scope), httponly=True, samesite="strict")
+        return {**access_state(request), "ok": False}
+
     # ------------------------------------------------------------------ routes
     @app.get("/api/health")
-    async def health(deep: bool = False) -> dict[str, Any]:
+    async def health(request: Request, deep: bool = False) -> dict[str, Any]:
         llm_status = llm.status()
         if deep and llm.configured:
             llm_status["reachable"] = await llm.ping()
@@ -248,6 +314,7 @@ def create_app(
                     "configured": settings.stt_configured, "vad": services.vad_ok, "vad_reason": services.vad_reason},
             "fillers": services.fillers.state,
             "sessions": len(store),
+            "client": {"transport": transport(request.scope)},
         }
 
     @app.post("/api/session/reset")

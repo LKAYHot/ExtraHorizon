@@ -20,19 +20,11 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from .access import transport
 from .sessions import Session, now_ms
 from .vision.service import VisionService
 
 log = logging.getLogger("extrahorizon.vision")
-
-LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
-
-
-def is_loopback(host: str | None) -> bool:
-    if not host:
-        return False
-    return host in LOOPBACK or host.startswith("127.") or host == "::ffff:127.0.0.1"
-
 
 class VisionConnection:
     def __init__(self, ws: WebSocket, session: Session, vision: VisionService, settings: Any, boot_id: str) -> None:
@@ -84,16 +76,18 @@ class VisionConnection:
         prev = self.session.attach_vision(self)
         if prev is not None and prev is not self:
             prev.supersede()
-        client_host = self.ws.client.host if self.ws.client else None
+        # "this computer" also needs no proxy in between (a tunnel's requests come from 127.0.0.1)
+        how = transport(self.ws.scope)
         self.send(
             {
                 "type": "hello",
                 "session_id": self.session.id,
                 "boot_id": self.boot_id,
                 "server_time": now_ms(),
-                "client_is_loopback": is_loopback(client_host),
+                "client_is_loopback": how == "local",
+                "transport": how,
                 "vision": self.vision.status(),
-                "config": self.settings.public_vision_config(),
+                "config": self.settings.public_vision_config(remote=how != "local"),
             }
         )
         self.send(self.session.snapshot_message())

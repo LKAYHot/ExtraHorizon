@@ -71,7 +71,7 @@
           </div>
           <ol class="how">
             <li><Mic size={15} /><span><strong>Talk</strong> — hands-free: speech is detected on your computer; only your speech is transcribed.</span></li>
-            <li><ScanFace size={15} /><span><strong>Expression</strong> — {app.local ? 'your camera is analysed on this computer' : 'camera frames are analysed by the ExtraHorizon backend'}; a short description goes into her prompt.</span></li>
+            <li><ScanFace size={15} /><span><strong>Expression</strong> — {app.local ? 'your camera is analysed on this computer' : app.viaTunnel ? "your camera is analysed on the presenter's computer" : 'camera frames are analysed by the ExtraHorizon backend'}; a short description goes into her prompt.</span></li>
             <li><Hand size={15} /><span><strong>Interrupt</strong> — speak over her (or press Esc) and she stops at once; pauses in your sentence are fine.</span></li>
           </ol>
         </section>

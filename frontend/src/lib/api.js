@@ -8,9 +8,27 @@ async function jsonOrThrow(res) {
     const err = new Error(body.message || `HTTP ${res.status}`)
     err.code = body.code || `http_${res.status}`
     err.status = res.status
+    if (body.retry_after_s) err.retryAfter = body.retry_after_s
     throw err
   }
   return body
+}
+
+/** Remote access (docs/REMOTE_DEMO.md): {required, ok, configured, transport, public_url}. */
+export async function getAccess() {
+  const res = await fetch('/api/access', { cache: 'no-store' })
+  return jsonOrThrow(res)
+}
+
+/** Send the access key once; the server answers with an HttpOnly cookie. */
+export async function login(key) {
+  const res = await fetch('/api/access', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ key }) })
+  return jsonOrThrow(res)
+}
+
+export async function logout() {
+  const res = await fetch('/api/access', { method: 'DELETE' })
+  return jsonOrThrow(res)
 }
 
 export async function getHealth(deep = false, signal) {

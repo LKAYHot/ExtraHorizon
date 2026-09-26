@@ -5,6 +5,7 @@
   import ChatPanel from '$lib/components/ChatPanel.svelte'
   import EmotionPanel from '$lib/components/EmotionPanel.svelte'
   import Toasts from '$lib/components/Toasts.svelte'
+  import AccessGate from '$lib/components/AccessGate.svelte'
 
   onMount(() => {
     const onVis = () => {
@@ -19,7 +20,7 @@
     document.addEventListener('visibilitychange', onVis)
     document.addEventListener('keydown', onKey)
     const stopSpot = spotlight()
-    app.start()
+    app.boot() // asks /api/access first: the presenter's PC behind a tunnel needs the access key
     return () => {
       document.removeEventListener('visibilitychange', onVis)
       document.removeEventListener('keydown', onKey)
@@ -58,11 +59,15 @@
   }
 </script>
 
-<div class="shell">
-  <Sidebar />
-  <ChatPanel />
-  <EmotionPanel />
-</div>
+{#if app.accessState === 'ok'}
+  <div class="shell">
+    <Sidebar />
+    <ChatPanel />
+    <EmotionPanel />
+  </div>
+{:else}
+  <AccessGate />
+{/if}
 <Toasts />
 
 <style>

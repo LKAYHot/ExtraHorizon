@@ -3,8 +3,10 @@
   import { RotateCcw, GraduationCap, Server, Bot, ScanFace, LoaderCircle, Info, AudioLines, Ear, Drama, Languages } from '$lib/icons.js'
   import Logo from './Logo.svelte'
   import MicPicker from './MicPicker.svelte'
+  import Select from './Select.svelte'
 
   const SUBJECTS = ['General', 'Computer Science', 'Mathematics', 'Physics', 'Chemistry', 'Biology', 'History', 'Economics', 'Language Learning']
+  const SUBJECT_OPTIONS = SUBJECTS.map((s) => ({ value: s, label: s }))
 
   const llm = $derived(app.health?.llm)
   const tts = $derived(app.health?.tts ?? app.voice.info?.tts)
@@ -72,12 +74,10 @@
       <p>Prickly on the outside, rigorous on the inside. She answers aloud, reacts to your expression and can be interrupted any time — just start talking.</p>
       <div class="lang"><Languages size={12} /> Speaks English · understands Russian</div>
     </div>
-    <label class="field">
+    <div class="field">
       <span>Subject</span>
-      <select class="select" value={app.subject} onchange={(e) => app.setSubject(e.currentTarget.value)} data-testid="subject">
-        {#each SUBJECTS as s (s)}<option value={s}>{s}</option>{/each}
-      </select>
-    </label>
+      <Select options={SUBJECT_OPTIONS} value={app.subject} onchange={(s) => app.setSubject(s)} label="Subject" testid="subject" />
+    </div>
     <MicPicker />
     <label class="toggle" title="Show the voice-acting cues (e.g. [huffy and flustered]) as stage directions in the chat">
       <span class="switch">
@@ -91,7 +91,7 @@
   <section class="block status">
     <div class="eyebrow"><Info size={13} /> System</div>
     <div class="row"><Server size={14} /><span class="grow">Backend</span><span class="dot tone-{app.backendUp ? 'ok' : app.backendUp === false ? 'error' : 'warn'}"></span></div>
-    <div class="sub">{app.backendUp ? (app.local ? 'local · FastAPI' : `FastAPI · ${location.host}`) : app.backendUp === false ? 'offline — retrying…' : 'connecting…'}</div>
+    <div class="sub">{app.backendUp ? (app.local ? 'local · FastAPI' : app.viaTunnel ? "presenter's PC · Cloudflare Tunnel" : `FastAPI · ${location.host}`) : app.backendUp === false ? 'offline — retrying…' : 'connecting…'}</div>
     <div class="row"><Bot size={14} /><span class="grow">Language model</span><span class="dot tone-{llmTone}"></span></div>
     <div class="sub" class:mock={llm?.provider === 'mock'}>{llmText}</div>
     {#if llm?.last_error}

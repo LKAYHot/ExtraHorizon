@@ -9,6 +9,10 @@ The demo must prove two chains, with honest explanations on screen:
 **voice → fast in-character spoken answer you can interrupt**, and
 **camera → calibrated on-device expression estimate → words-only note of what she sees → adapted tone**.
 
+If the laptop is only the screen and the PC at home does the work (Cloudflare Tunnel), prepare with the
+`extrahorizon-remote-demo` skill first (`demo-host.ps1 -Check`, `demo_check.py --access-key-env` through the
+tunnel) and say on stage that the processing runs on the home PC via Cloudflare.
+
 ## Before the show (5 minutes)
 
 1. `.\scripts\start.ps1 -Open` on the demo laptop (loopback only — then the UI may say video stays on this device).

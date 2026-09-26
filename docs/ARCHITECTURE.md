@@ -90,6 +90,22 @@
 | Missing key / 401 / 404 / 429 / 5xx / network | `error` with code + message; UI error card with Retry (typed) |
 | LLM too slow / stalls | first-token 15 s, idle 20 s, total 60 s → `llm_timeout`; client watchdog 25 s |
 | Second tab with the same session | newer sockets supersede the older ("Use here" button) |
+| Remote browser without the key / with an expired cookie | the access gate (key prompt) instead of the app; `401` → back to the gate; no key on the server → "Remote access is off" |
+| Tunnel down / server stopped (remote demo) | the gate shows "server not reachable — retrying"; `demo-host.ps1` restarts a stopped server; Cloudflare shows 502/530 (docs/REMOTE_DEMO.md) |
+| Proxy closes a silent WebSocket (~100 s) | keepalive pings (vision 20 s, voice 15 s); reconnect with back-off otherwise |
+
+## Remote demo (the presenter's PC behind Cloudflare Tunnel)
+
+```
+laptop browser ─HTTPS─▶ Cloudflare edge ═ tunnel ═▶ cloudflared (service on the PC) ─▶ http://127.0.0.1:8080
+                                                                                       AccessGuard → the app
+```
+
+The server still binds to loopback; `access.py` classifies every request (`local` / `cloudflare` / `proxy` /
+`network` — tunnel requests also come from 127.0.0.1, only the headers tell them apart) and `AccessGuard`
+lets non-local requests into `/api/*` and the sockets only with the signed access cookie issued by
+`POST /api/access`. A remote browser gets a lighter camera profile (8 fps, JPEG 0.7) and honest "via
+Cloudflare" wording. `scripts/demo-host.ps1` runs and supervises it; details in [REMOTE_DEMO.md](REMOTE_DEMO.md).
 
 ## Why this shape
 

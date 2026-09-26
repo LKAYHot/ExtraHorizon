@@ -37,6 +37,8 @@ Source of truth for every message: **`docs/CONTRACT.md`** — change it first, t
 | OpenAI chat streaming, error mapping, fallback model, mock | `backend/extrahorizon/llm.py` |
 | HTTP routes, SSE, origin/host guards, static UI | `backend/extrahorizon/app.py` |
 | Vision socket (latest-frame-wins, single writer) | `backend/extrahorizon/vision_ws.py` |
+| Remote access: transport (local/cloudflare/proxy/network), access key, cookie, brute-force brake, guard | `backend/extrahorizon/access.py` · `/api/access` in `app.py` · `AccessGate.svelte` · `scripts/demo-host.ps1` |
+| Styled select (combobox + listbox, keyboard, portal) | `frontend/src/lib/components/Select.svelte` (used by Subject and the microphone picker) |
 | UI state (the only store) · camera + calibration/sensitivity · voice + audio + microphone choice | `frontend/src/lib/app.svelte.js` · `vision.svelte.js` · `voice.svelte.js` + `audio.js` (`MicCapture`) |
 | Emotion colours/orders (validated palette) · voice cues in markdown | `frontend/src/lib/emotions.js` · `cues.js` + `markdown.js` |
 | Components | `frontend/src/lib/components/*.svelte` |
@@ -57,6 +59,7 @@ Source of truth for every message: **`docs/CONTRACT.md`** — change it first, t
 10. **Privacy claims follow the real data path** (loopback check for "stays on this device"; MediaPipe usage metrics disclosed; camera and microphone start only after an explicit consent click).
 11. **Simulation is labelled** (SIMULATED / NOT LIVE, striped card, marked spans) and allowed only in that mode / tests.
 12. **Secrets**: keys live only in the git-ignored `.env`; hooks in `.githooks/` + `tests/test_secrets.py` block commits/pushes of keys or their values. Never print, log or return a key; check with `len(...)` only.
+13. **Remote access** (`access.py`, docs/REMOTE_DEMO.md): the server binds to loopback; "local" = loopback peer **and** no proxy header **and** loopback Host (tunnel requests come from 127.0.0.1 too). Every non-local `/api/*` request and both sockets need the signed access cookie (`POST /api/access` with `EH_ACCESS_KEY`); no key configured → remote refused. The UI shell stays public for the key prompt. Remote privacy wording names Cloudflare; the "stays on this device" claim is local-only.
 
 ## When you add or change a dependency, model, dataset, asset, service or AI tool
 

@@ -76,7 +76,7 @@
         <Camera size={22} />
         <p class="lead">Turn on the camera so {app.persona} can read the room.</p>
         <ul>
-          <li>Frames go {app.local ? "over localhost to this computer's ExtraHorizon process" : `to the ExtraHorizon backend at ${location.host}`}, where Google's <strong>MediaPipe</strong> finds your face and an {app.local ? 'on-device ' : ''}<strong>expression model</strong> estimates it — frames are discarded, never stored, never sent to OpenAI.</li>
+          <li>Frames go {app.local ? "over localhost to this computer's ExtraHorizon process" : app.viaTunnel ? "over HTTPS through Cloudflare Tunnel to the ExtraHorizon server on the presenter's computer" : `to the ExtraHorizon backend at ${location.host}`}, where Google's <strong>MediaPipe</strong> finds your face and an {app.local ? 'on-device ' : ''}<strong>expression model</strong> estimates it — frames are discarded, never stored, never sent to OpenAI.</li>
           <li>It first learns <em>your</em> relaxed face (~3 s — look at the screen), so your resting face reads as neutral.</li>
           <li>Only a short, words-only description (“looks mostly happy…”) is added to her prompt when you ask something.</li>
           <li>MediaPipe itself sends Google anonymous <strong>usage metrics</strong> (e.g. frame counts, latency, OS/Python version) while the camera is on — per Google, never images or video.</li>
@@ -114,7 +114,7 @@
     {/if}
     <span class="grow"></span>
     {#if v.camera === 'active' && v.fps}
-      <span class="perf faint num" title="Frames analysed per second · round trip to the local backend">{v.fps} fps · {v.latencyMs ?? '—'} ms</span>
+      <span class="perf faint num" title="Frames analysed per second · round trip to the ExtraHorizon server">{v.fps} fps · {v.latencyMs ?? '—'} ms</span>
     {/if}
   </div>
 </section>

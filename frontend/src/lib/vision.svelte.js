@@ -24,6 +24,7 @@ export class VisionController {
   socket = $state('closed') // connecting | open | closed | superseded
   backend = $state.raw({ available: null, reason: null })
   clientIsLoopback = $state(null)
+  transport = $state(null) // local | cloudflare | proxy | network (from the server's hello)
   config = $state.raw({
     max_fps: 12, frame_width: 480, jpeg_quality: 0.8, alpha: 0.35, reference_fps: 10, switch_hold_s: 0.8, switch_margin: 0.08,
   })
@@ -49,6 +50,7 @@ export class VisionController {
   #lastSend = 0
   #frameTimer = null
   #watchdog = null
+  #keepalive = null
   #simTimer = null
   #reconnectTimer = null
   #reconnectDelay = 500
@@ -72,12 +74,15 @@ export class VisionController {
         this.#scheduleFrame()
       }
     }, 500)
+    // proxies such as Cloudflare close WebSockets that stay silent for ~100 s (camera off)
+    this.#keepalive = setInterval(() => this.#sendJSON({ type: 'ping', t: Date.now() }), 20000)
   }
 
   stop() {
     this.#stopped = true
     document.removeEventListener('visibilitychange', this.#onVisibility)
     clearInterval(this.#watchdog)
+    clearInterval(this.#keepalive)
     clearTimeout(this.#frameTimer)
     clearTimeout(this.#reconnectTimer)
     this.#stopSim()
@@ -146,6 +151,7 @@ export class VisionController {
       case 'hello':
         this.backend = m.vision
         this.clientIsLoopback = m.client_is_loopback
+        this.transport = m.transport ?? (m.client_is_loopback ? 'local' : null)
         this.config = { ...this.config, ...m.config }
         app.onHello(m)
         // the camera may have become active before the server said vision is available

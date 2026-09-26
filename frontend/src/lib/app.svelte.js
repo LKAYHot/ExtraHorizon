@@ -38,6 +38,14 @@ class AppState {
   vision = new VisionController(this)
   voice = new VoiceController(this)
 
+  // remote access (e.g. the presenter's PC behind Cloudflare Tunnel): the app starts only once
+  // /api/access says this browser may use it — checking | ok | needed | disabled | offline
+  access = $state.raw(null)
+  accessState = $state('checking')
+  /** local | cloudflare | proxy | network — how this browser reaches the server (for honest wording). */
+  transport = $derived(this.access?.transport ?? this.vision.transport ?? null)
+  viaTunnel = $derived(this.transport === 'cloudflare')
+
   // "local" wording anywhere in the UI requires BOTH a loopback page and the backend
   // confirming it sees us on loopback (same rule as the privacy card)
   local = $derived(typeof location !== 'undefined' && isLoopbackHost(location.hostname) && this.vision.clientIsLoopback === true)
@@ -57,7 +65,50 @@ class AppState {
   #abort = null
   #healthTimer = null
   #started = false
+  #booting = false
   #ready = null // resolves once the tab owns its session id and restored its state
+
+  // ------------------------------------------------------------------ access
+  /** First call: ask whether this browser needs the access key, then start (or show the gate). */
+  async boot() {
+    this.#booting = true
+    while (this.#booting) {
+      try {
+        const a = await api.getAccess()
+        this.access = a
+        if (!a.required || a.ok) {
+          this.accessState = 'ok'
+          return this.start()
+        }
+        this.accessState = a.configured ? 'needed' : 'disabled'
+        return
+      } catch (e) {
+        if (e.status === 404) { // a backend without remote access support: nothing to unlock
+          this.accessState = 'ok'
+          return this.start()
+        }
+        this.accessState = 'offline' // server or tunnel not reachable yet — keep trying
+        await new Promise((r) => setTimeout(r, 2500))
+      }
+    }
+  }
+
+  /** Submit the access key (throws {code: wrong_key | too_many_attempts | remote_disabled, …}). */
+  async unlock(key) {
+    const a = await api.login(key)
+    this.access = { ...a, ok: true }
+    this.accessState = 'ok'
+    return this.start()
+  }
+
+  /** The API said the access cookie is gone (expired, key changed): back to the gate. */
+  lockOut() {
+    if (this.accessState !== 'ok' || !this.access?.required) return
+    this.shutdown()
+    this.access = { ...this.access, ok: false }
+    this.accessState = 'needed'
+    this.toast('warn', 'Access expired — enter the key again.')
+  }
 
   // ------------------------------------------------------------------ lifecycle
   start() {
@@ -80,6 +131,7 @@ class AppState {
   }
 
   shutdown() {
+    this.#booting = false
     clearInterval(this.#healthTimer)
     this.vision.stop()
     this.voice.stop()
@@ -111,7 +163,8 @@ class AppState {
       this.health = h
       if (this.backendUp === false) this.toast('ok', 'Backend is back online.')
       this.backendUp = true
-    } catch {
+    } catch (e) {
+      if (e?.status === 401 || e?.code === 'remote_disabled') return this.lockOut()
       if (this.backendUp !== false) this.backendUp = false
     }
   }

@@ -12,7 +12,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr
+from urllib.parse import urlsplit
+
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -72,6 +74,14 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = Field(default_factory=list)
     allowed_hosts: list[str] = Field(default_factory=list)
     log_level: str = "info"
+    # remote demo: the server stays bound to loopback and an HTTPS tunnel in front of it (e.g.
+    # Cloudflare Tunnel) serves EH_PUBLIC_URL. Every request that does not come from this computer
+    # needs the access key — without EH_ACCESS_KEY remote requests are refused (docs/REMOTE_DEMO.md).
+    public_url: str | None = None
+    access_key: SecretStr | None = None
+    access_cookie_days: float = 14.0
+    remote_max_fps: float = 8.0  # camera profile for browsers on another network (upload bandwidth)
+    remote_jpeg_quality: float = 0.7
     cache_dir: Path = BACKEND_DIR / "cache"
 
     # ------------------------------------------------------------------ LLM (one provider: OpenAI)
@@ -210,6 +220,27 @@ class Settings(BaseSettings):
             return False
         return self.stt_provider == "mock" or self.llm_configured_openai
 
+    @field_validator("public_url")
+    @classmethod
+    def _public_url(cls, v: str | None) -> str | None:
+        v = (v or "").strip().rstrip("/")
+        if not v:
+            return None
+        u = urlsplit(v)
+        if u.scheme not in ("http", "https") or not u.hostname or u.path or u.query or u.fragment:
+            raise ValueError("EH_PUBLIC_URL must be an origin like https://demo.example.com")
+        return f"{u.scheme}://{u.netloc.lower()}"
+
+    @property
+    def public_host(self) -> str | None:
+        """Host header of EH_PUBLIC_URL (with the port if it has one)."""
+        return urlsplit(self.public_url).netloc.lower() if self.public_url else None
+
+    @property
+    def access_configured(self) -> bool:
+        key = self.access_key.get_secret_value().strip() if self.access_key else ""
+        return len(key) >= 12
+
     @property
     def llm_configured_openai(self) -> bool:
         key = self.openai_api_key.get_secret_value().strip() if self.openai_api_key else ""
@@ -229,12 +260,14 @@ class Settings(BaseSettings):
             "calibration_s": self.emotion_calibration_s,
         }
 
-    def public_vision_config(self) -> dict:
+    def public_vision_config(self, remote: bool = False) -> dict:
+        """Camera settings for the browser; a browser on another network gets a lighter profile
+        (its upload also carries the microphone)."""
         return {
             **self.public_emotion_config(),
-            "max_fps": self.max_fps,
+            "max_fps": min(self.max_fps, self.remote_max_fps) if remote else self.max_fps,
             "frame_width": self.frame_width,
-            "jpeg_quality": self.jpeg_quality,
+            "jpeg_quality": min(self.jpeg_quality, self.remote_jpeg_quality) if remote else self.jpeg_quality,
         }
 
     def public_voice_config(self) -> dict:

@@ -43,6 +43,20 @@ an expression — the same engine → note → answer chain. Never present simul
 * Google's MediaPipe library sends Google anonymous usage metrics while the camera is on; per Google never images.
 * Facial-expression estimates are imperfect and biased; calibration removes one person's resting-face bias, not
   every error. An expression is not a feeling.
+* **Remote demo (the PC at home, the laptop on stage):** say it plainly — "the heavy lifting runs on my PC at home;
+  this laptop just streams the camera and microphone to it over HTTPS through Cloudflare Tunnel". Then the video does
+  *not* stay on the laptop: it goes through Cloudflare to the PC, is analysed there in memory and discarded — the app
+  shows exactly this wording, and it is protected by an access key.
+
+## Remote demo checklist (PC at home → laptop at the venue)
+
+1. At home: `.\scripts\demo-host.ps1 -Check` → all `[ok]`; `-Install` if the PC must restart it by itself; sleep off.
+2. `cd backend; uv run python scripts/demo_check.py --base <public URL> --access-key-env --speech ..\frontend\e2e\.cache\question.wav`
+   → PASS through the tunnel.
+3. On the laptop, before the show: open the URL on the venue network, enter the key (`-ShowKey` at home), camera
+   + microphone permission, headphones; one question end to end. If the venue upload is weak: `EH_REMOTE_MAX_FPS=6`.
+4. Fallback if the tunnel or the home connection fails: run locally on the laptop (`.\scripts\start.ps1 -Open`)
+   and say so — slower, but everything is real; or `-MockLLM -MockVoice` (labelled offline doubles).
 
 ## Final rehearsal plan (on the demo laptop, ~25 min)
 

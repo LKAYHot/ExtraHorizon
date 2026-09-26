@@ -18,10 +18,12 @@
   <ul>
     {#if local}
       <li><strong>Camera video stays on this computer.</strong> Frames are downsized in the browser, sent over a localhost WebSocket to the ExtraHorizon Python process, analysed in memory (MediaPipe face landmarks + an on-device expression model) and discarded — never saved.</li>
+    {:else if app.viaTunnel}
+      <li class="warn" data-testid="privacy-tunnel"><strong>Camera video goes to the presenter's computer.</strong> Frames are downsized in this browser and sent over HTTPS to <strong>Cloudflare</strong>, which forwards them through an encrypted tunnel (Cloudflare Tunnel) to the ExtraHorizon server — Cloudflare decrypts and re-encrypts the traffic in between. There they are analysed in memory (MediaPipe + an expression model) and discarded — never saved.</li>
     {:else}
       <li class="warn"><strong>The vision backend is not on this device</strong> ({location.host}). Camera frames travel over the network to it — the "video never leaves this device" claim does not apply here.</li>
     {/if}
-    <li><strong>Microphone:</strong> audio goes to the ExtraHorizon backend, which detects speech locally; only the parts where you speak are sent to {stt} for transcription. Nothing is recorded.</li>
+    <li><strong>Microphone:</strong> audio goes to the ExtraHorizon backend{app.viaTunnel ? ' (the same way, through Cloudflare)' : ''}, which detects speech{local ? ' locally' : ''}; only the parts where you speak are sent to {stt} for transcription. Nothing is recorded.</li>
     <li><strong>Sent to {llm}:</strong> your messages (typed or transcribed), her earlier answers and a short words-only description of your apparent expression (e.g. “looks relaxed”, “frowning”). No images, landmarks or numbers.</li>
     <li><strong>Sent to {tts}:</strong> the text of her answers, to speak them in her voice.</li>
     <li><strong>Sent to Google by the MediaPipe library:</strong> anonymous usage metrics (e.g. frame counts, latency, OS/Python version) while the camera is on — per <a href="https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice" target="_blank" rel="noopener noreferrer">Google's notice</a>, never the images or video.</li>

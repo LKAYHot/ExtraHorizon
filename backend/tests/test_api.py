@@ -374,7 +374,10 @@ def test_wildcard_bind_never_accepts_arbitrary_hosts():
         assert c.get("/api/health", headers={"Host": "evil.example:8765"}).status_code == 400
         assert c.get("/api/health", headers={"Host": "127.0.0.1:8765"}).status_code == 200
     with client_for(host="0.0.0.0", allowed_hosts=["tutor.lan"]) as c:
-        assert c.get("/api/health", headers={"Host": "tutor.lan:8765"}).status_code == 200
+        # an explicitly allowed LAN name gets through the host check — but another machine
+        # still needs the access key (none configured here → remote access is off)
+        r = c.get("/api/health", headers={"Host": "tutor.lan:8765"})
+        assert r.status_code == 403 and r.json()["code"] == "remote_disabled"
 
 
 def test_broken_opencv_disables_vision_but_never_the_chat():
