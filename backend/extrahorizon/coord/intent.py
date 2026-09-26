@@ -59,9 +59,11 @@ def wants_refresh(text: str) -> bool:
 
 def about_analysis(text: str, report: dict[str, Any] | None = None) -> bool:
     """With an analysis on screen: is this message about it? (Otherwise she simply tutors.)"""
+    from .refs import finding_ids
+
     t = text or ""
-    if _FID.search(t) or _UTIL.search(t) or _STRONG.search(t) or _ABOUT.search(t):
-        return True
+    if _FID.search(t) or _UTIL.search(t) or _STRONG.search(t) or _ABOUT.search(t) or finding_ids(t):
+        return True  # (finding_ids: also spoken — "что на F сто сорок шесть?")
     if report:
         words = set(re.findall(r"[\w.-]{4,}", t))
         return any(p.get("project_id") in words for p in report.get("projects_index", ()))

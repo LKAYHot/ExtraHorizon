@@ -3,13 +3,24 @@
   import { renderMarkdown } from '$lib/markdown.js'
   import { hideOpenCue } from '$lib/cues.js'
   import { COLOR, LABEL } from '$lib/emotions.js'
-  import { RefreshCw, CircleAlert, Mic, ScanFace, ChevronDown, Hand, AudioLines, Construction, Check, LoaderCircle, MapIcon } from '$lib/icons.js'
+  import { RefreshCw, CircleAlert, Mic, ScanFace, ChevronDown, Hand, AudioLines, Construction, Check, LoaderCircle, MapIcon, Search } from '$lib/icons.js'
   import Logo from './Logo.svelte'
 
   let { m, isLast = false } = $props()
 
   const streaming = $derived(m.status === 'pending' || m.status === 'streaming')
-  const html = $derived(m.role === 'assistant' ? renderMarkdown(streaming ? hideOpenCue(m.text) : m.text) : '')
+  const html = $derived(m.role === 'assistant'
+    ? renderMarkdown(streaming ? hideOpenCue(m.text) : m.text, {
+      // "F12" in an older answer is the old F12: buttons only while the panel shows the report it was about
+      fids: !!m.analysis?.report_id && m.analysis.report_id === app.coordReport?.id }) : '')
+  const tools = $derived(m.role === 'assistant' ? (m.analysis?.tools ?? []) : [])
+  // a finding ID in her answer shows that finding on the map
+  function onBodyClick(e) {
+    const b = e.target?.closest?.('[data-fid]')
+    if (b) app.selectFinding(b.dataset.fid)
+  }
+  const TOOL_LABEL = { find_findings: 'looked up', get_project: 'looked up project', show_on_map: 'showed on the map',
+                       recheck_finding: 're-checked live' }
   const speaking = $derived(
     m.role === 'assistant' && m.turn_no != null && app.voice.playing && app.voice.playingKind === 'answer' && app.voice.playingTurn === m.turn_no,
   )
@@ -58,8 +69,18 @@
           {/if}
         </div>
       {/if}
+      {#if tools.length}
+        <div class="tools" data-testid="tool-tags">
+          {#each tools as t, i (i)}
+            <span class="tag tool" class:recheck={t.name === 'recheck_finding'} title="{TOOL_LABEL[t.name] ?? t.name}: {t.summary}">
+              {#if t.name === 'recheck_finding'}<RefreshCw size={11} />{:else if t.name === 'show_on_map'}<MapIcon size={11} />{:else}<Search size={11} />{/if}
+              {TOOL_LABEL[t.name] ?? t.name}{#if t.summary}{' '}<b>{t.summary}</b>{/if}</span>
+          {/each}
+        </div>
+      {/if}
       {#if m.text}
-        <div class="md" class:streaming>{@html html}</div>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="md" class:streaming onclick={onBodyClick}>{@html html}</div>
       {:else if streaming}
         <div class="thinking"><span class="typing" aria-label="Thinking"><i></i><i></i><i></i></span></div>
       {/if}
@@ -202,4 +223,16 @@
   .an-t.warn, .an-t .warn { color: var(--warn); }
   .tag.grounded { color: var(--ok); }
   .tag.ungrounded { color: var(--warn); }
+  .tools { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 6px; }
+  .tag.tool { color: var(--text-2); animation: tool-in .35s ease-out both; }
+  .tag.tool b { color: var(--text); font-weight: 600; }
+  .tag.tool.recheck { color: var(--ok); }
+  @keyframes tool-in { from { opacity: 0; transform: translateY(3px); } }
+  .md :global(button.fid) {
+    display: inline; font: inherit; font-weight: 650; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 0; border-radius: 5px; padding: 0 4px; margin: 0 1px; cursor: pointer; line-height: inherit;
+  }
+  .md :global(button.fid:hover) { background: color-mix(in srgb, var(--accent) 24%, transparent); text-decoration: underline; }
+  .md :global(button.fid:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+  @media (prefers-reduced-motion: reduce) { .tag.tool { animation: none; } }
 </style>

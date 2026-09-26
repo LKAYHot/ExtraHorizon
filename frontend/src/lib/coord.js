@@ -43,12 +43,25 @@ export function fmtDate(iso) {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+/** The pair picker's "all pairs of plans". */
+export const ALL_PAIRS = '*'
+
 /** Findings between the two plans of a pair, in either order (all findings without a pair). */
 export function findingsOfPair(report, key) {
   if (!report) return []
-  if (!key) return report.findings
+  if (!key || key === ALL_PAIRS) return report.findings
   const want = key.split(' ↔ ').sort().join(' ↔ ')
   return report.findings.filter((f) => [...f.plans].sort().join(' ↔ ') === want)
+}
+
+/** What the panel shows: the spotlight (what she just looked up or named), else the chosen pair. */
+export function shownFindings(report, key, spot) {
+  if (!report) return []
+  if (spot?.ids?.length) {
+    const want = new Set(spot.ids)
+    return report.findings.filter((f) => want.has(f.id))
+  }
+  return findingsOfPair(report, key)
 }
 
 /** A pair of plans with the utility network first (blue) and the road/other work second
@@ -59,9 +72,14 @@ export function orderPair(plans, report) {
   return utility(b) && !utility(a) ? [b, a] : [a, b]
 }
 
-/** Which plan of the pair is "A" (blue) — the pair key's first plan. */
-export function sideOf(plan, key) {
-  if (!key) return null
+/** Which plan of the pair is "A" (blue) — the pair key's first plan. For all pairs: utility networks are
+ *  blue and road / other work orange. */
+export function sideOf(plan, key, report = null) {
+  if (!key || !plan) return null
+  if (key === ALL_PAIRS) {
+    const p = report?.plans?.find((x) => x.label === plan)
+    return p ? (p.utility ? 'a' : 'b') : null
+  }
   const [a, b] = key.split(' ↔ ')
   return plan === a ? 'a' : plan === b ? 'b' : null
 }

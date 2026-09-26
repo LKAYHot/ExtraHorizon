@@ -1,6 +1,6 @@
 import * as api from './api.js'
 import { probsArray } from './emotions.js'
-import { orderPair } from './coord.js'
+import { ALL_PAIRS, orderPair } from './coord.js'
 import { isLoopbackHost } from './format.js'
 import { claimSessionId, getSessionId, readPref, writePref } from './session.js'
 import { VisionController } from './vision.svelte.js'
@@ -41,7 +41,9 @@ class AppState {
 
   // utility-coordination analysis (coord/): the right panel shows it instead of the camera
   view = $state('tutor') // tutor | analysis
-  coord = $state({ state: 'idle', error: '', steps: [], selected: null, pair: null, rechecks: {}, busy: false })
+  // spot: what she just looked up or named ({ids, label, project}) — the panel and the map follow it
+  coord = $state({ state: 'idle', error: '', steps: [], selected: null, pair: null, rechecks: {}, busy: false, spot: null,
+                   tab: 'findings' })
   coordReport = $state.raw(null) // the verified report (projects, findings, sources) — large, not deep-reactive
 
   // remote access (e.g. the presenter's PC behind Cloudflare Tunnel): the app starts only once
@@ -58,6 +60,7 @@ class AppState {
   persona = $derived(this.health?.persona ?? this.voice.info?.persona ?? 'Rika')
   coordEnabled = $derived(this.health?.coord?.enabled !== false) // EH_COORD_ENABLED (on until health says otherwise)
   #coordGen = 0 // bumped by "New session" / closing: late answers of older requests are dropped
+  #pendingFocus = null // a focus that arrived before its report was loaded
   /** Voice turn in flight (spoken question being answered), newest first. */
   voiceTurnActive = $derived(this.messages.some((m) => m.role === 'assistant' && m.source === 'voice' && (m.status === 'pending' || m.status === 'streaming')))
   /** idle | listening | hearing | thinking | speaking — the tutor's conversational state. */
@@ -196,11 +199,13 @@ class AppState {
     this.timelineVersion++
     this.voice.reset()
     this.#coordGen++
+    this.#pendingFocus = null
     this.coordReport = null
     this.coord.state = 'idle'
     this.coord.steps = []
     this.coord.rechecks = {}
     this.coord.selected = null
+    this.coord.spot = null
     this.view = 'tutor'
   }
 
@@ -287,11 +292,17 @@ class AppState {
       })
       return
     }
+    if (event === 'focus') return this.onFocus(data)
+    if (event === 'recheck') return this.onRecheckEvent(data)
     const msg = this.#assistantOfTurn(turn)
     if (!msg) return
     if (event === 'analysis') {
       msg.analysis = { ...(msg.analysis ?? {}), live: data }
       this.onAnalysisEvent(data)
+      return
+    }
+    if (event === 'tool') {
+      this.#onTool(msg, data)
       return
     }
     if (event === 'delta') {
@@ -423,8 +434,14 @@ class AppState {
     const first = keepPair ? null : (report?.highlights?.[0] ?? report?.findings?.[0]?.id ?? null)
     this.coord.selected = first
     const own = first ? this.#pairOf(first) : null
+    this.coord.spot = null
     if (own) this.coord.pair = own
     else if (!pairs.includes(this.coord.pair)) this.coord.pair = pairs[0] ?? null
+    if (this.#pendingFocus) {
+      const d = this.#pendingFocus
+      this.#pendingFocus = null
+      if (!d.report_id || d.report_id === report?.id) this.onFocus(d) // a stale one (older report) is dropped
+    }
   }
 
   /** The pair key (as the pair picker spells it) of a finding. */
@@ -438,8 +455,72 @@ class AppState {
   }
 
   choosePair(key) {
+    this.coord.spot = null // the learner browses again
     this.coord.pair = key
-    if (this.coord.selected && this.#pairOf(this.coord.selected) !== key) this.coord.selected = null
+    if (key !== ALL_PAIRS && this.coord.selected && this.#pairOf(this.coord.selected) !== key) this.coord.selected = null
+  }
+
+  // ------------------------------------------------------------------ the map follows the conversation
+  /** A finding or place she looked up or named, or the question pointed at ("what about F146?"). */
+  onFocus(d) {
+    if (!d) return
+    if (!this.coordReport || (d.report_id && d.report_id !== this.coordReport.id)) {
+      // the report is still loading (an analysis that just finished) — or it is a newer one than the panel's
+      if (d.within && this.#pendingFocus) return // a pick never replaces the spotlight it picks from
+      this.#pendingFocus = d
+      return
+    }
+    this.#mergeFindings(d.findings)
+    const have = new Set(this.coordReport.findings.map((f) => f.id))
+    const ids = (d.ids ?? []).filter((id) => have.has(id))
+    if (!ids.length && !d.project) return
+    if (d.within && this.coord.spot && ids.length === 1) {
+      // her answer names one of the findings she is showing ("the closest is F138"): select it, keep the rest
+      const s = this.coord.spot
+      if (!s.ids.includes(ids[0])) this.coord.spot = { ...s, ids: [...s.ids, ids[0]] }
+      this.#select(ids[0])
+      return
+    }
+    this.view = 'analysis'
+    if (ids.length === 1 && !d.project) {
+      this.coord.spot = null
+      this.#select(ids[0])
+      return
+    }
+    if (!ids.length) {
+      // a project with no findings: the map shows the project itself
+      this.coord.spot = { ids: [], total: 0, label: d.label ?? '', project: d.project }
+      this.coord.selected = null
+      if (this.coord.tab === 'sources') this.coord.tab = 'findings'
+      return
+    }
+    this.coord.spot = { ids, total: d.total ?? ids.length, label: d.label ?? '', project: d.project ?? null }
+    if (this.coord.tab === 'sources') this.coord.tab = 'findings'
+    const pairs = new Set(ids.map((id) => this.#pairOf(id)))
+    this.coord.pair = pairs.size === 1 ? [...pairs][0] : ALL_PAIRS
+    this.coord.selected = ids[0]
+  }
+
+  clearSpot() {
+    this.coord.spot = null
+  }
+
+  onRecheckEvent(d) {
+    if (!d?.id || !d.result || (d.report_id && d.report_id !== this.coordReport?.id)) return
+    this.coord.rechecks = { ...this.coord.rechecks, [d.id]: recheckState(d.result) }
+  }
+
+  #onTool(msg, d) {
+    if (!msg || !d?.name) return
+    msg.analysis = { ...(msg.analysis ?? {}), tools: [...(msg.analysis?.tools ?? []), d] }
+  }
+
+  /** Findings the panel does not list arrive with a focus (or on a click): the map can draw them. */
+  #mergeFindings(list) {
+    if (!list?.length || !this.coordReport) return
+    const have = new Set(this.coordReport.findings.map((f) => f.id))
+    const add = list.filter((f) => f?.id && !have.has(f.id))
+    if (add.length) this.coordReport = { ...this.coordReport, findings: [...this.coordReport.findings, ...add] }
   }
 
   async #restoreAnalysis() {
@@ -477,9 +558,7 @@ class AppState {
     let result
     try {
       const r = await api.coordRecheck(this.sessionId, fid)
-      // a record the county's service did not answer for is "could not re-check", not "changed"
-      const unreachable = (r.records ?? []).filter((x) => !x.found && x.error !== 'record no longer published')
-      result = { ...r, state: r.ok ? 'ok' : unreachable.length ? 'unreachable' : 'changed' }
+      result = recheckState(r)
     } catch (e) {
       result = { state: 'unreachable', message: e.message }
     }
@@ -487,9 +566,28 @@ class AppState {
     if (this.coordReport?.id === reportId) this.coord.rechecks = { ...this.coord.rechecks, [fid]: result }
   }
 
-  selectFinding(fid) {
+  /** Show a finding on the map — also one the panel does not list (a click on "F450" in her answer). */
+  async selectFinding(fid) {
+    if (!this.coordReport) return
+    if (!this.coordReport.findings.some((f) => f.id === fid)) {
+      const gen = this.#coordGen
+      try {
+        const f = await api.coordFinding(this.sessionId, fid)
+        if (gen !== this.#coordGen) return
+        this.#mergeFindings([f])
+      } catch {
+        this.toast('warn', `${fid} is not in this analysis.`)
+        return
+      }
+    }
+    if (this.coord.spot && !this.coord.spot.ids.includes(fid)) this.coord.spot = null
+    this.#select(fid)
+  }
+
+  #select(fid) {
+    if (this.coord.tab === 'sources') this.coord.tab = 'findings' // show the finding's card
     const own = this.#pairOf(fid)
-    if (own && own !== this.coord.pair) this.coord.pair = own
+    if (!this.coord.spot && this.coord.pair !== ALL_PAIRS && own && own !== this.coord.pair) this.coord.pair = own
     this.coord.selected = fid
     this.view = 'analysis'
   }
@@ -498,6 +596,8 @@ class AppState {
    *  panel comes back. (The header toggle only switches panels and keeps the analysis.) */
   async closeAnalysis() {
     this.#coordGen++
+    this.#pendingFocus = null
+    this.coord.spot = null
     this.coordReport = null
     this.coord.state = 'idle'
     this.coord.steps = []
@@ -583,6 +683,9 @@ class AppState {
           msg.analysis = { ...(msg.analysis ?? {}), live: d }
           this.onAnalysisEvent(d)
         },
+        onFocus: (d) => this.onFocus(d),
+        onTool: (d) => this.#onTool(msg, d),
+        onRecheck: (d) => this.onRecheckEvent(d),
         onDone: (d) => {
           flush()
           msg.status = 'done'
@@ -666,3 +769,10 @@ class AppState {
 }
 
 export const app = new AppState()
+
+/** A re-check's state for the finding card: a record the county's service did not answer for is
+ *  "could not re-check", never "changed". */
+export function recheckState(r) {
+  const unreachable = (r.records ?? []).filter((x) => !x.found && x.error !== 'record no longer published')
+  return { ...r, state: r.ok ? 'ok' : unreachable.length ? 'unreachable' : 'changed' }
+}

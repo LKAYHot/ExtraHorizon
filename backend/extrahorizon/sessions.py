@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from .context import build_messages, emotion_note, normalize_subject
 from .coord.intent import about_analysis, wants_analysis, wants_refresh, wants_rerun
+from .coord.refs import with_ids
 from .coord.report import fact_sheet
 from .emotion.calibration import SENSITIVITY, Calibrator
 from .emotion.engine import LABELS, OK, UNKNOWN, EmotionConfig, EmotionEngine, EmotionObservation
@@ -345,7 +346,7 @@ class Session:
         sheet = fact_sheet(report, mention=b["text"]) if report else None
         plan.analysis_sheet = sheet
         return build_messages(
-            self.messages, b["text"], subject=self.subject, emotion_context=b["ctx"],
+            self.messages, with_ids(b["text"]), subject=self.subject, emotion_context=b["ctx"],
             history_turns=self.settings.llm_history_turns, name=self.settings.persona_name,
             voice=b["voice"], analysis_sheet=sheet, analysis_mode=(plan.analysis or {}).get("mode"),
         )
@@ -389,7 +390,7 @@ class Session:
             user_msg=user_msg,
             assistant_id=new_id("m"),
             llm_messages=build_messages(
-                self.messages, text, subject=self.subject, emotion_context=ctx,
+                self.messages, with_ids(text) if mode else text, subject=self.subject, emotion_context=ctx,
                 history_turns=self.settings.llm_history_turns, name=self.settings.persona_name,
                 voice=source == "voice", analysis_sheet=sheet, analysis_mode=mode,
             ),
@@ -413,8 +414,12 @@ class Session:
     def confirm_plan(self, plan: ChatPlan, final_text: str) -> None:
         """A speculative turn was right: release its outputs (with the final transcript)."""
         plan.user_msg["text"] = final_text.strip() or plan.user_msg["text"]
-        if plan.llm_messages and plan.llm_messages[-1]["role"] == "user":
-            plan.llm_messages[-1]["content"] = plan.user_msg["text"]
+        # the question is the prompt's last user message (a question in Russian may be followed by the language note)
+        question = next((m for m in reversed(plan.llm_messages or []) if m["role"] == "user"), None)
+        if question is not None:
+            # an analysis prompt keeps the spoken finding numbers written out ("… F сто сорок шесть? [F146]")
+            text = plan.user_msg["text"]
+            question["content"] = with_ids(text) if plan.analysis else text
         if plan.build:
             plan.build["text"] = plan.user_msg["text"]  # an analysis prompt is built from it later
         plan.gate.set()
@@ -464,7 +469,8 @@ class Session:
             "interrupted": interrupted,
         }
         if plan.analysis:
-            assistant["analysis"] = {k: v for k, v in plan.analysis.items() if k in ("mode", "report_id", "check", "live")}
+            assistant["analysis"] = {k: v for k, v in plan.analysis.items()
+                                     if k in ("mode", "report_id", "check", "live", "tools")}
         self.messages.extend([plan.user_msg, assistant])
         del self.messages[:-MAX_MESSAGES]
         self._chat_plan = None

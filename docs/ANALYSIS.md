@@ -183,12 +183,71 @@ so the same data always gives the same F1, F2, …
 * If the county's data cannot be read, the sheet says the analysis FAILED and she says so plainly; a server-side
   failure is said as one — she never guesses.
 
+### She knows the whole analysis — not only the sheet (`coord/refs.py`, `coord/tools.py`)
+
+Found live: asked out loud *"что пересекается на F сто сорок шесть?"*, she said F146 was "not in the summary" while
+the panel listed it — speech-to-text had written the number as words, and she could see only the dozen findings of
+her fact sheet. Now:
+
+* **Finding numbers are read however they arrive** — "F146", "f-146", "F 146", "F сто сорок шесть", "эф сто
+  тридцать пять", "F one forty-six", "finding one hundred and three", "находка 12" (English and Russian number
+  words up to 9,999, digit by digit or in groups; "the F1 score" is not a finding). The finding's full details go
+  into her fact sheet and the ID is written out in her prompt ("… F сто сорок шесть? [F146]").
+* **Tools** (OpenAI function calling, in follow-up answers — the first report is written from the sheet, which
+  already holds everything it covers): `find_findings` (any of the 583 findings — also those the panel does not
+  list — by ID, by a project's ID, name, street or place, by plan or agency, by kind, by the county's list, with
+  exact counts; sorted strongest / closest / most days together / largest shared area), `get_project` (a project
+  and every finding it is part of), `recheck_finding` (reads both projects from the county's service now and
+  verifies them again) and `show_on_map`. Up to three look-up rounds per answer; everything a tool returns counts as
+  verified data for the grounding check; under her answer small tags say what she looked up ("looked up "Biscayne
+  Blvd"", "looked up DTPW · Paving · closest first", "re-checked live F135: unchanged", "showed on the map …"; the
+  same look-up twice is one tag). A search needs every distinctive word ("Zzqx Ave" finds nothing, not every
+  avenue), and a plan named in the search text is that plan: "DTPW Paving" gives the plan's 35 findings, not the
+  48 whose project names contain "Paving".
+* **The map follows the conversation** (`focus` events): the finding a question names moves the map before she
+  says a word (also spoken: "F сто сорок шесть"); what she looks up is spotlighted — the map frames those overlaps,
+  the list shows just them, the pair picker switches to *All pairs of plans* if they span several (blue = utility
+  networks, orange = road work), and a banner says what is shown with *Show all*. Her answer moves it too: with
+  nothing on the map yet, the first finding she names is selected; after a look-up, the first of *its* findings she
+  names is picked out of the spotlight, which stays ("the closest is F138" selects F138 among the 35 she looked up —
+  live it had kept the strongest one selected); a finding she mentions only in passing, or anything after the
+  learner asked about one finding, moves nothing. The map stays in view: the plan picker, her spotlight banner and
+  the map stay at the top of the panel while the list scrolls under them, and the selected card comes in just below
+  the map (live, a selection had scrolled the map out of sight). The selected card is always on the list (a
+  *Sources* tab switches to *Findings*). A finding ID in her answer is a button — a click shows it (also one the panel does not list: it is
+  fetched from the server).
+* **She answers in English**, also to Russian questions — the rule opens her analysis rules, a question in Russian
+  gets it once more as the last message after it, and it is repeated right after her look-ups (live, Russian
+  questions had drawn Russian answers now and then, with and without a look-up). A message that asks
+  for Russian ("Ответь по-русски", "на русском", "in Russian") gets Russian, with IDs, names and figures as written
+  (her voice cues may then be Russian too; nothing inside a cue is spoken).
+* Live check with the real model (2026-09-26): "Хорошо, что пересекается на F сто сорок шесть?" → F146 on the map
+  and in the list before her answer, the answer in English with 4 figures, all grounded; "Is F135 still true right
+  now?" → `recheck_finding` → "F135 still holds … unchanged, 37 m", the card shows the re-check; "What overlaps along
+  Biscayne Blvd?" → `find_findings("Biscayne Blvd")`: 40 findings spotlighted, F18 (the one she describes) selected,
+  11 figures grounded; "How many findings involve DTPW Paving, and which one is the closest?" → one look-up
+  (*DTPW · Paving · closest first*): exactly 35, the closest F138 (72 m), F138 selected; "If F = 20 N and m = 4 kg…"
+  → ordinary physics, the map stays. Five more questions in Russian (F146, DTPW Paving, Biscayne Blvd, "почему F135
+  важна?", "какие планы пересекаются чаще всего?"), run twice → 10 of 10 answered in English, with and without
+  look-ups; "Ответь по-русски, пожалуйста: что с F146?" → in Russian (2 of 2).
+
+### The analysis is built on screen
+
+While it runs, the panel shows the build step by step from the server's progress events — the county's 16 layers
+arriving one by one with their record counts, then *Verifying every record*, *Comparing the utilities' plans*,
+*Cross-checking with the county's own list*, each with a counter. When it is ready the numbers count up and the
+map builds itself: the county first, then the projects are drawn along their outlines in a west-to-east sweep
+(context, road work, utility networks), the overlaps light up, and the camera flies in to the finding she talks
+about, where a ring pulses. Later changes only restyle or fly; with *reduce motion* set in the system, none of it
+animates.
+
 ## 7. What leaves the computer
 
 * **Server → Esri ArcGIS Online** (the county's services): only the queries; nothing about the learner.
-* **Server → OpenAI:** the fact sheet — public county records (project names, IDs, agencies, statuses, dates,
-  measurements, counts). Contact e-mails and phone numbers in the records are never included (not even sent to
-  the browser).
+* **Server → OpenAI:** the fact sheet and, in follow-ups, the results of her look-ups — public county records
+  (project names, IDs, agencies, statuses, dates, measurements, counts) and the tool definitions. Contact e-mails
+  and phone numbers in the records are never included (not even sent to the browser); the full list of findings
+  stays on the server (`public_report`).
 * **Browser → OpenStreetMap's tile servers** (`tile.openstreetmap.org`): map tiles for the visible area; the
   tile servers see the viewer's IP address and the page address (Referer). Map data © OpenStreetMap
   contributors (ODbL), shown on the map.
@@ -215,8 +274,11 @@ so the same data always gives the same F1, F2, …
 the bounding box but outside the (test) boundary, a merged multi-part project and the county cross-check), dated
 as of 2026-09-26 so the result never drifts. Offline results are labelled *TEST FIXTURE* in the panel, the chat
 card and the fact sheet, the publisher check fails on purpose, and nothing is cached. Tests:
-`backend/tests/test_coord.py`, the voice-socket cases in `backend/tests/test_live.py`, `frontend/src/lib/coord.test.js`,
-`frontend/e2e/analysis.spec.js` (the e2e server always runs on the fixtures and blocks map tiles).
+`backend/tests/test_coord.py`, `backend/tests/test_coord_tools.py` (spoken IDs, the tools, the map following the
+conversation, the offline tutor using the same tool, the OpenAI stream's tool calls), the voice-socket cases in
+`backend/tests/test_live.py`, `frontend/src/lib/coord.test.js` + `markdown.test.js`, `frontend/e2e/analysis.spec.js`
+(the e2e server always runs on the fixtures and blocks map tiles; it checks a spoken "F пять", a click on an ID in
+her answer and a look-up spotlighted on the map).
 
 ## 10. Configuration
 

@@ -75,6 +75,36 @@ test('ask → verified analysis → map, findings, schedules, sources → ground
   await expect(page.getByTestId('analysis-card')).toHaveCount(1)
   await expect(second.getByTestId('grounding-ok')).toBeVisible()
 
+  // the map follows the conversation: a finding number spoken as words ("F пять" = F5; the stricter rules
+  // left five findings) moves it at once …
+  await page.getByTestId('composer').fill('а что на F пять?')
+  await page.getByTestId('send').click()
+  const third = page.getByTestId('assistant-message').nth(2)
+  await expect(third).toHaveAttribute('data-status', 'done')
+  await expect(page.locator('[data-testid="coord-finding"][data-id="F5"]')).toHaveClass(/sel/)
+  await expect(page.getByTestId('coord-pair')).toContainText('WASD · Sewer ↔ DTPW · Roadway')
+  // … a finding ID in her answer is a button that shows it
+  await second.locator('button.fid', { hasText: /^F1$/ }).first().click()
+  await expect(page.locator('[data-testid="coord-finding"][data-id="F1"]')).toHaveClass(/sel/)
+  // … and what she looks up (her tool: any finding, by the words of a name) is spotlighted on the map
+  await page.getByTestId('composer').fill('What overlaps with the county road resurfacing?')
+  await page.getByTestId('send').click()
+  const fourth = page.getByTestId('assistant-message').nth(3)
+  await expect(fourth).toHaveAttribute('data-status', 'done')
+  await expect(fourth.getByTestId('tool-tags')).toContainText('looked up')
+  await expect(fourth).toContainText('TR-301')
+  await expect(page.getByTestId('coord-spot')).toContainText('2 findings')
+  await expect(page.getByTestId('coord-pair')).toContainText('All pairs of plans')
+  await expect(findings).toHaveCount(2)
+  await page.getByTestId('coord-spot-clear').click()
+  await expect(page.getByTestId('coord-spot')).toHaveCount(0)
+  // the map stays in view while the list scrolls under it: the last card of all pairs, and the map is still seen
+  const last = findings.last()
+  await last.locator('button.fid').click()
+  await expect(last).toHaveClass(/sel/)
+  await expect(last).toBeInViewport()
+  await expect(page.getByTestId('coord-map')).toBeInViewport({ ratio: 0.95 })
+
   // back to the camera panel and again; a new session forgets the analysis
   await page.getByTestId('coord-hide').click()
   await expect(panel).toHaveCount(0)
@@ -87,10 +117,10 @@ test('ask → verified analysis → map, findings, schedules, sources → ground
   await expect(panel).toHaveCount(0)
   await page.getByTestId('composer').fill('Explain recursion to me.')
   await page.getByTestId('send').click()
-  const third = page.getByTestId('assistant-message').nth(2)
-  await expect(third).toHaveAttribute('data-status', 'done')
-  await expect(third.getByTestId('grounding-ok')).toHaveCount(0)
-  await expect(third.getByTestId('analysis-card')).toHaveCount(0)
+  const fifth = page.getByTestId('assistant-message').nth(4)
+  await expect(fifth).toHaveAttribute('data-status', 'done')
+  await expect(fifth.getByTestId('grounding-ok')).toHaveCount(0)
+  await expect(fifth.getByTestId('analysis-card')).toHaveCount(0)
   await page.getByTestId('reset').click()
   await expect(page.getByTestId('assistant-message')).toHaveCount(0)
   await page.getByTestId('coord-toggle').click()

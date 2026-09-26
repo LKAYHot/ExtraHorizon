@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from extrahorizon.config import Settings
-from extrahorizon.llm import BaseLLM, LLMError, StreamInfo
+from extrahorizon.llm import BaseLLM, LLMError, StreamInfo, ToolCalls
 
 CACHE = Path(__file__).parent / ".cache"
 PORTRAIT_URL = "https://storage.googleapis.com/mediapipe-assets/portrait.jpg"
@@ -54,7 +54,8 @@ def make_settings(**overrides: Any) -> Settings:
 
 class FakeLLM(BaseLLM):
     """Scriptable provider double. ``script`` is consumed one entry per request:
-    "ok" | "error" | "hang" | "stall" | "fail_mid" | "slow" (one word per 50 ms) | "length" (cut at max_tokens)."""
+    "ok" | "error" | "hang" | "stall" | "fail_mid" | "slow" (one word per 50 ms) | "length" (cut at max_tokens)
+    | 'tools:[{"name": …, "arguments": {…}}, …]' (asks for those tool calls, no text)."""
 
     provider = "fake"
     model = "fake-model"
@@ -66,12 +67,24 @@ class FakeLLM(BaseLLM):
         self.text = text
         self.requests: list[list[dict[str, str]]] = []
         self.max_tokens: list[int | None] = []
+        self.tools: list[Any] = []
         self.closed = 0
 
-    async def stream(self, messages: list[dict[str, str]], max_tokens: int | None = None) -> AsyncIterator[str | StreamInfo]:
-        self.requests.append(messages)
+    async def stream(self, messages: list[dict[str, Any]], max_tokens: int | None = None,
+                     tools: list[dict[str, Any]] | None = None,
+                     tool_choice: str = "auto") -> AsyncIterator[str | ToolCalls | StreamInfo]:
+        self.requests.append([dict(m) for m in messages])
         self.max_tokens.append(max_tokens)
+        self.tools.append(tools if tool_choice != "none" else None)
         mode = self.script.pop(0) if self.script else "ok"
+        if mode.startswith("tools:"):
+            calls = json.loads(mode[len("tools:"):])
+            yield ToolCalls(tuple({"id": f"call_{i}", "name": c["name"],
+                                   "arguments": c["arguments"] if isinstance(c["arguments"], str)
+                                   else json.dumps(c["arguments"])} for i, c in enumerate(calls)))
+            yield StreamInfo(model=self.model, finish_reason="tool_calls")
+            self.closed += 1
+            return
         try:
             if mode == "error":
                 raise LLMError("llm_upstream", "Upstream failed (fake).", True)

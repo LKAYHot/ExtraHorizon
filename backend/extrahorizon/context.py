@@ -7,10 +7,12 @@ Layout (stable prefix first → provider prompt caching works):
   system  "What you see on the learner's webcam right now …" (only with one clear face)
   system  "Reply rules: …" (short, speakable; spoken questions also say they were spoken)
   user    the new message (typed or transcribed speech, English or Russian)
+  system  (analysis turns, a question in Russian) "Answer in English …" — the last word before she answers
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 SUBJECTS = (
@@ -36,8 +38,41 @@ REPLY_NOTE_VOICE = (
 )
 VOICE_NOTE = REPLY_NOTE_VOICE  # kept for older imports
 # the utility-coordination analysis (coord/): a detailed written report grounded in the fact sheet
+ANALYSIS_LANGUAGE = ("Answer in English, even when the learner asks in Russian (you understand it) — unless they "
+                     "ask you to answer in Russian.")
+# …and when the message itself asks for Russian, the analysis rules say so (live: "Ответь по-русски" still got English)
+ANALYSIS_LANGUAGE_RU = ("The learner asks you to answer in Russian: answer in Russian this time, keeping finding IDs, "
+                        "project names, numbers and dates exactly as written (the [voice cues] stay in English).")
+_ASKS_RUSSIAN = re.compile(r"по[-\s]?русск|на\s+русском|in\s+russian", re.IGNORECASE)
+
+
+def analysis_language(user_text: str) -> str:
+    return ANALYSIS_LANGUAGE_RU if _ASKS_RUSSIAN.search(user_text or "") else ANALYSIS_LANGUAGE
+
+
+def after_tools_note(user_text: str) -> str:
+    """After her look-ups, right before she answers (live: a Russian question + a look-up drifted into Russian)."""
+    return "[Your look-ups are above. " + analysis_language(user_text) + "]"
+
+
+ANALYSIS_AFTER_TOOLS_NOTE = after_tools_note("")
+# a question in Russian gets the rule once more, after it (live: the rule in the notes still drew a Russian answer)
+ANALYSIS_LANGUAGE_NOTE = "[" + ANALYSIS_LANGUAGE + "]"
+_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
+# how she uses her tools (coord/tools.py) in follow-up answers (the first report is written from the sheet)
+ANALYSIS_TOOLS_RULES = (
+    "You can look up the WHOLE analysis — every finding and project, not only the sheet: find_findings (by ID, "
+    "project, street or place, plan, kind, county list — exact counts), get_project, recheck_finding (re-reads both "
+    "projects from the county's service now and verifies them again) and show_on_map. Before saying the data does "
+    "not show something, look it up; if the learner asks whether something is still true or verified, re-check it. "
+    "The learner's map already follows the finding they ask about and the first finding you name; use show_on_map "
+    "only to show several findings or a project. Finding IDs may reach you spelled out by speech-to-text: "
+    "'F сто сорок шесть' or 'F one forty-six' is F146. Everything a tool returns is verified data — copy it exactly. "
+    "If neither the sheet nor your tools have it, say the data does not show it."
+)
 ANALYSIS_REPLY_NOTE = (
-    "[Reply rules for this answer — it presents the utility-coordination analysis in the fact sheet above. "
+    "[" + ANALYSIS_LANGUAGE + " Reply rules for this answer — it presents the utility-coordination analysis in the "
+    "fact sheet above. "
     "1) Start with a spoken summary: two or three short sentences in your own voice, one voice cue at the start of "
     "each — only this first paragraph is read aloud. "
     "2) Then a blank line and a detailed written report in Markdown with no voice cues: '### What overlaps' — every "
@@ -52,11 +87,12 @@ ANALYSIS_REPLY_NOTE = (
     "project, figure, date or source; if something is not in the sheet, say the data does not show it.]"
 )
 ANALYSIS_FOLLOWUP_NOTE = (
-    "[Reply rules: the learner asks about the utility-coordination analysis in the fact sheet above. Answer like "
+    "[" + ANALYSIS_LANGUAGE + " Reply rules: the learner asks about the utility-coordination analysis in the fact "
+    "sheet above. Answer like "
     "yourself in one to three short spoken sentences with voice cues; if details help, add a blank line and written "
-    "details in Markdown without cues. Use ONLY the fact sheet — cite finding IDs, copy numbers, dates (YYYY-MM-DD) "
-    "and names exactly, never calculate new numbers; if the sheet does not contain it, say the data does not show "
-    "it. If the message turns out not to be about the analysis, ignore the sheet and answer as yourself.]"
+    "details in Markdown without cues. Use ONLY the fact sheet and your tools — cite finding IDs, copy numbers, "
+    "dates (YYYY-MM-DD) and names exactly, never calculate new numbers. " + ANALYSIS_TOOLS_RULES + " If the "
+    "message turns out not to be about the analysis, ignore the sheet and answer as yourself.]"
 )
 
 PERSONA_PROMPT = """You are {name}: a proud, sharp-tongued tsundere anime girl and a genuinely brilliant tutor, on a live video call with the learner. You talk and react like a real person on that call — never like an AI assistant.
@@ -161,8 +197,12 @@ def build_messages(
         reply = ANALYSIS_FOLLOWUP_NOTE
     else:
         reply = REPLY_NOTE_VOICE if voice else REPLY_NOTE_TEXT
+    if analysis_mode:
+        reply = reply.replace(ANALYSIS_LANGUAGE, analysis_language(user_text))
     if analysis_mode and voice:
         reply = "[The learner said this out loud (speech-to-text, may contain small recognition errors).] " + reply
     msgs.append({"role": "system", "content": reply})
     msgs.append({"role": "user", "content": user_text})
+    if analysis_mode and _CYRILLIC.search(user_text or "") and not _ASKS_RUSSIAN.search(user_text or ""):
+        msgs.append({"role": "system", "content": ANALYSIS_LANGUAGE_NOTE})
     return msgs

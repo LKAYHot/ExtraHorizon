@@ -405,6 +405,7 @@ def create_app(
     @app.post("/api/coord/analyze")
     async def coord_analyze(req: AnalyzeRequest) -> dict[str, Any]:
         from .coord.arcgis import SourceError
+        from .coord.service import public_report
 
         svc = coord_service()
         session = store.get_or_create(req.session_id)
@@ -422,16 +423,33 @@ def create_app(
             raise ApiError(409, "session_reset", "The session was reset while the analysis ran.")
         session.coord_params = rules  # remembered only once they produced an analysis
         session.analysis = report
-        return report
+        return public_report(report)
 
     @app.get("/api/coord/report")
     async def coord_report(session_id: str) -> dict[str, Any]:
+        from .coord.service import public_report
+
         if not _SESSION_ID_RE.match(session_id):
             raise ApiError(422, "bad_session_id", "Invalid session id.")
         session = store.get(session_id)
         if session is None or session.analysis is None:
             raise ApiError(404, "no_analysis", "No analysis in this session yet.")
-        return session.analysis
+        return public_report(session.analysis)
+
+    @app.get("/api/coord/finding")
+    async def coord_finding(session_id: str, id: str) -> dict[str, Any]:  # noqa: A002 — the query parameter
+        """One finding of the analysis on screen — also one the panel does not list (a click on "F450")."""
+        from .coord.report import all_findings
+
+        if not _SESSION_ID_RE.match(session_id) or not re.fullmatch(r"F\d{1,6}", id):
+            raise ApiError(422, "bad_request", "Invalid session id or finding id.")
+        session = store.get(session_id)
+        if session is None or session.analysis is None:
+            raise ApiError(404, "no_analysis", "No analysis in this session yet.")
+        f = next((x for x in all_findings(session.analysis) if x["id"] == id), None)
+        if f is None:
+            raise ApiError(404, "no_finding", f"No finding {id} in this analysis.")
+        return f
 
     @app.delete("/api/coord/report")
     async def coord_close(session_id: str) -> dict[str, Any]:

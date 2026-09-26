@@ -1,22 +1,34 @@
 <script>
-  import { onMount } from 'svelte'
+  import { onMount, untrack } from 'svelte'
   import 'leaflet/dist/leaflet.css'
   import { app } from '$lib/app.svelte.js'
-  import { OTHER, OVERLAP, PLAN_A, PLAN_B, fmtDate, fmtDistance, fmtTiming, findingsOfPair, sideOf } from '$lib/coord.js'
+  import { OTHER, OVERLAP, PLAN_A, PLAN_B, fmtDate, fmtDistance, fmtTiming, shownFindings, sideOf } from '$lib/coord.js'
 
-  // Leaflet map of the verified projects: the two compared plans in blue and orange, other plans
-  // as gray context, overlaps (shared areas / shortest lines) in near-white. Basemap: standard
-  // OpenStreetMap tiles (loaded by the browser from tile.openstreetmap.org — disclosed in
-  // EXTERNAL_DEPENDENCIES.md), turned dark gray so the only hues on the map are the data's.
+  // Leaflet map of the verified projects: the two compared plans in blue and orange (or, for all pairs,
+  // utility networks blue and road work orange), other plans as gray context, overlaps (shared areas /
+  // shortest lines) in near-white. Basemap: standard OpenStreetMap tiles (loaded by the browser from
+  // tile.openstreetmap.org — disclosed in EXTERNAL_DEPENDENCIES.md), turned dark gray so the only hues on
+  // the map are the data's.
+  //
+  // A new analysis is *built* on the map: the county's projects are drawn in a west-to-east sweep (context,
+  // then road work, then the utility networks), the overlaps light up, and the camera flies to the finding
+  // being discussed; the selected overlap pulses. Everything later only restyles or flies (no redraw).
   let el = $state(null)
   let L = null
   let map = null
-  let layers = null
+  let base = null // the projects (one layer per project, restyled on pair / spotlight changes)
+  let overlays = null // the overlaps of the current view
+  let marks = null // the selected finding: outlines + pulsing ring
   let byUid = new Map()
+  let layerOf = new Map()
+  let builtFor = null // the report id the base layer was built for
   let size = [0, 0] // the container size the view was last framed for
+  let busyUntil = 0 // the build animation is running: wait before flying
+  const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const report = $derived(app.coordReport)
   const pair = $derived(app.coord.pair)
+  const spot = $derived(app.coord.spot)
   const selected = $derived(app.coord.selected)
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
@@ -31,57 +43,143 @@
       <a href="${esc(p.record_url)}" target="_blank" rel="noopener noreferrer">The county's record ↗</a></div>`
   }
 
-  function draw() {
-    if (!map || !L || !report) return
-    layers?.remove()
-    layers = L.layerGroup().addTo(map)
+  const visible = () => shownFindings(report, pair, spot)
+
+  function styleOf(p, involved) {
+    const side = p ? sideOf(p.plan_short, pair, report) : null
+    const on = involved.has(p?.uid)
+    if (side === 'a') return { color: PLAN_A, weight: on ? 2 : 1.4, fillColor: PLAN_A, fillOpacity: on ? 0.42 : 0.14, opacity: on ? 1 : 0.7 }
+    if (side === 'b') return { color: PLAN_B, weight: on ? 2 : 1.4, fillColor: PLAN_B, fillOpacity: on ? 0.42 : 0.14, opacity: on ? 1 : 0.7 }
+    return { color: OTHER, weight: 0.8, fillColor: OTHER, fillOpacity: 0.07, opacity: 0.4 }
+  }
+
+  /** The projects, once per report — with the build animation. */
+  function buildBase() {
+    base?.remove()
+    base = L.featureGroup().addTo(map)
     byUid = new Map(report.projects_index.map((p) => [p.uid, p]))
-    const pairFindings = findingsOfPair(report, pair)
-    const involved = new Set(pairFindings.flatMap((f) => [f.a, f.b]))
-    const style = (feature) => {
-      const p = byUid.get(feature.properties.uid)
-      const side = p ? sideOf(p.plan_short, pair) : null
-      if (side === 'a') return { color: PLAN_A, weight: 1.5, fillColor: PLAN_A, fillOpacity: involved.has(p.uid) ? 0.42 : 0.18, opacity: 0.95 }
-      if (side === 'b') return { color: PLAN_B, weight: 1.5, fillColor: PLAN_B, fillOpacity: involved.has(p.uid) ? 0.42 : 0.18, opacity: 0.95 }
-      return { color: OTHER, weight: 0.8, fillColor: OTHER, fillOpacity: 0.08, opacity: 0.45 }
-    }
-    // context first, then the compared plans on top
-    const ordered = [...report.projects_geojson.features].sort((f1, f2) => {
-      const s1 = sideOf(byUid.get(f1.properties.uid)?.plan_short, pair) ? 1 : 0
-      const s2 = sideOf(byUid.get(f2.properties.uid)?.plan_short, pair) ? 1 : 0
-      return s1 - s2
-    })
-    L.geoJSON({ type: 'FeatureCollection', features: ordered }, {
-      style,
+    layerOf = new Map()
+    const gj = L.geoJSON(report.projects_geojson, {
+      style: () => styleOf(null, new Set()),
       pointToLayer: (_f, latlng) => L.circleMarker(latlng, { radius: 5 }),
       onEachFeature: (feature, layer) => {
         const p = byUid.get(feature.properties.uid)
-        if (p) layer.bindPopup(popup(p), { maxWidth: 300 })
+        if (p) {
+          layer.bindPopup(popup(p), { maxWidth: 300 })
+          layerOf.set(p.uid, layer)
+        }
       },
-    }).addTo(layers)
-    // overlaps of the chosen pair
-    for (const f of pairFindings) {
-      if (!f.geometry) continue
-      const sel = f.id === selected
-      L.geoJSON(f.geometry, {
-        style: () => ({
-          color: OVERLAP, weight: sel ? 4 : 2, opacity: sel ? 1 : 0.85, fillColor: OVERLAP, fillOpacity: sel ? 0.7 : 0.45,
-          dashArray: f.distance_m > 0 ? '4 4' : null,
-        }),
-        pointToLayer: (_g, latlng) => L.circleMarker(latlng, { radius: sel ? 7 : 4 }),
+    }).addTo(base)
+    builtFor = report.id
+    restyle()
+    if (reduced) return
+    // a west-to-east sweep across the county (not the projects' extent: one corridor runs down the Keys):
+    // context first, then the road work, then the utility networks
+    const b = county()
+    const w = b.getWest()
+    const span = Math.max(1e-6, b.getEast() - w)
+    gj.eachLayer((layer) => {
+      const node = layer.getElement?.()
+      if (!node) return
+      const p = byUid.get(layer.feature?.properties?.uid)
+      const util = report.plans.find((x) => x.label === p?.plan_short)?.utility
+      const group = !sideOf(p?.plan_short, pair, report) ? 0 : util ? 2 : 1
+      const c = layer.getBounds ? layer.getBounds().getCenter() : layer.getLatLng()
+      const delay = group * 420 + Math.min(1, Math.max(0, (c.lng - w) / span)) * 900
+      node.setAttribute('pathLength', '1')
+      node.classList.add('eh-draw')
+      node.style.animationDelay = `${Math.round(delay)}ms`
+      // once drawn, never again: bringToFront() re-appends the node, which would restart the animation
+      node.addEventListener('animationend', () => {
+        node.classList.remove('eh-draw')
+        node.style.animationDelay = ''
+        node.removeAttribute('pathLength')
+      }, { once: true })
+    })
+    busyUntil = performance.now() + 2000
+  }
+
+  /** Colours for the chosen pair / spotlight — no redraw. */
+  function restyle() {
+    if (!base) return
+    const involved = new Set(visible().flatMap((f) => [f.a, f.b]))
+    for (const [uid, layer] of layerOf) {
+      layer.setStyle(styleOf(byUid.get(uid), involved))
+      if (involved.has(uid)) layer.bringToFront()
+    }
+  }
+
+  /** The overlaps of the current view (they light up once the projects are drawn). */
+  function drawOverlaps(animate) {
+    overlays?.remove()
+    overlays = L.featureGroup().addTo(map)
+    const list = visible()
+    list.forEach((f, i) => {
+      if (!f.geometry) return
+      const g = L.geoJSON(f.geometry, {
+        style: () => ({ color: OVERLAP, weight: 2, opacity: 0.9, fillColor: OVERLAP, fillOpacity: 0.5,
+                        dashArray: f.distance_m > 0 ? '4 4' : null }),
+        pointToLayer: (_g, latlng) => L.circleMarker(latlng, { radius: 4 }),
       }).bindTooltip(`${f.id} · ${fmtDistance(f.distance_m)} · ${fmtTiming(f)}`, { sticky: true })
         .on('click', () => app.selectFinding(f.id))
-        .addTo(layers)
-    }
-    // the two projects of the selected finding, outlined
+        .addTo(overlays)
+      if (animate && !reduced) {
+        g.eachLayer((layer) => {
+          const node = layer.getElement?.()
+          if (!node) return
+          node.classList.add('eh-ignite')
+          node.style.animationDelay = `${Math.round(1500 + Math.min(i, 60) * 18)}ms`
+        })
+      }
+    })
+  }
+
+  /** The finding being discussed: its two projects outlined, a pulse on the overlap, the camera on it —
+   *  or the project she showed. */
+  function drawSelection() {
+    marks?.remove()
+    marks = L.featureGroup().addTo(map)
     const f = report.findings.find((x) => x.id === selected)
-    if (f) {
-      L.geoJSON({ type: 'FeatureCollection', features: featuresOf([f.a, f.b]) }, {
-        style: () => ({ color: OVERLAP, weight: 2.5, fill: false, opacity: 0.9 }),
+    if (!f && spot?.project) {
+      L.geoJSON({ type: 'FeatureCollection', features: featuresOf([spot.project]) }, {
+        style: () => ({ color: OVERLAP, weight: 3, fill: false, opacity: 0.95 }),
         pointToLayer: (_g, latlng) => L.circleMarker(latlng, { radius: 8 }),
-      }).addTo(layers)
+        interactive: false,
+      }).addTo(marks)
+      return
     }
-    fit(true)
+    if (!f) return
+    // during a build it appears once the projects are drawn
+    const late = reduced ? 0 : Math.max(0, busyUntil - performance.now())
+    if (late) marks.on('layeradd', (e) => lateIn(e.layer, late))
+    L.geoJSON({ type: 'FeatureCollection', features: featuresOf([f.a, f.b]) }, {
+      style: () => ({ color: OVERLAP, weight: 2.5, fill: false, opacity: 0.95 }),
+      pointToLayer: (_g, latlng) => L.circleMarker(latlng, { radius: 8 }),
+      interactive: false,
+    }).addTo(marks)
+    const spotBounds = f.geometry ? L.geoJSON(f.geometry).getBounds() : null
+    if (spotBounds?.isValid()) {
+      const center = spotBounds.getCenter()
+      L.geoJSON(f.geometry, {
+        style: () => ({ color: OVERLAP, weight: 4, opacity: 1, fillColor: OVERLAP, fillOpacity: 0.75,
+                        dashArray: f.distance_m > 0 ? '4 4' : null }),
+        pointToLayer: (_g, latlng) => L.circleMarker(latlng, { radius: 7 }),
+      }).bindTooltip(`${f.id} · ${fmtDistance(f.distance_m)} · ${fmtTiming(f)}`, { sticky: true }).addTo(marks)
+      const ring = L.circleMarker(center, { radius: 14, color: OVERLAP, weight: 2, fill: false, opacity: 0.9, interactive: false }).addTo(marks)
+      ring.getElement?.()?.classList.add('eh-pulse')
+    }
+  }
+
+  function lateIn(layer, ms) {
+    const each = (l) => {
+      const node = l.getElement?.()
+      if (node) {
+        node.classList.add('eh-late')
+        node.style.animationDelay = `${Math.round(ms)}ms`
+      }
+      l.eachLayer?.(each)
+    }
+    each(layer)
   }
 
   const featuresOf = (uids) => {
@@ -89,20 +187,62 @@
     return report.projects_geojson.features.filter((x) => want.has(x.properties.uid))
   }
 
-  // Frame where the selected finding overlaps (a state-road corridor can span the whole county, so not
-  // both projects), else every project of the chosen pair's findings, else everything.
-  function fit(animate) {
-    if (!map || !L || !report) return
-    size = [el.clientWidth, el.clientHeight]
+  // Frame where the selected finding overlaps (a state-road corridor can span the whole county — one even runs
+  // down the Keys — so never whole projects when an overlap is known), else where the spotlight's / the pair's
+  // findings overlap, else the county.
+  function target() {
     const f = report.findings.find((x) => x.id === selected)
     if (f?.geometry) {
-      const spot = L.geoJSON(f.geometry).getBounds()
-      if (spot.isValid()) return map.fitBounds(spot.pad(0.6), { maxZoom: 16, animate })
+      const b = L.geoJSON(f.geometry).getBounds()
+      if (b.isValid()) return [b.pad(0.6), 16]
     }
-    const uids = f ? [f.a, f.b] : findingsOfPair(report, pair).flatMap((x) => [x.a, x.b])
-    const feats = featuresOf(uids)
-    const target = L.geoJSON(feats.length ? { type: 'FeatureCollection', features: feats } : report.projects_geojson).getBounds()
-    if (target.isValid()) map.fitBounds(target.pad(f ? 0.35 : 0.05), { maxZoom: f ? 17 : 15, animate })
+    if (!f && spot?.project) {
+      const b = L.geoJSON({ type: 'FeatureCollection', features: featuresOf([spot.project]) }).getBounds()
+      if (b.isValid()) return [b.pad(0.25), 16]
+    }
+    const geoms = visible().map((x) => x.geometry).filter(Boolean)
+    if (geoms.length) {
+      const b = L.geoJSON({ type: 'GeometryCollection', geometries: geoms }).getBounds()
+      if (b.isValid()) return [b.pad(0.15), 15]
+    }
+    return [county(), 12]
+  }
+
+  function county() {
+    const [w, s, e, n] = report.region?.bbox ?? [-80.95, 25.1, -80.05, 26.0]
+    return L.latLngBounds([s, w], [n, e])
+  }
+
+  let flyTimer = null
+  function fly(smooth) {
+    if (!map || !L || !report) return
+    size = [el.clientWidth, el.clientHeight]
+    const t = target()
+    if (!t) return
+    const [bounds, maxZoom] = t
+    clearTimeout(flyTimer)
+    if (!smooth || reduced) return map.fitBounds(bounds, { maxZoom, animate: false })
+    const wait = Math.max(0, busyUntil - performance.now())
+    flyTimer = setTimeout(() => map && map.flyToBounds(bounds, { maxZoom, duration: 1.1, easeLinearity: 0.2 }), wait)
+  }
+
+  function render(kind) {
+    if (!map || !L || !report) return
+    if (builtFor !== report.id) {
+      // the build: the whole county first, then the projects sweep in, then the camera flies in
+      map.fitBounds(county(), { animate: false })
+      buildBase()
+      drawOverlaps(true)
+      drawSelection()
+      fly(true)
+      return
+    }
+    if (kind === 'view') {
+      restyle()
+      drawOverlaps(false)
+    }
+    drawSelection()
+    fly(true)
   }
 
   onMount(() => {
@@ -112,7 +252,9 @@
       if (dead || !el) return
       L = mod.default ?? mod
       const [lat, lon] = report?.region?.center ?? [25.76, -80.3]
-      map = L.map(el, { preferCanvas: true, zoomControl: true, attributionControl: true }).setView([lat, lon], 10)
+      // SVG (not canvas): every project is an element the build animation can draw
+      map = L.map(el, { preferCanvas: false, renderer: L.svg({ padding: 0.5 }), zoomControl: true, attributionControl: true })
+        .setView([lat, lon], 10)
       // OpenStreetMap's standard tiles (ODbL data, OSMF tile policy), darkened with a CSS filter
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, className: 'eh-dark-tiles',
@@ -122,24 +264,31 @@
       ro = new ResizeObserver(() => {
         if (!map || (el.clientWidth === size[0] && el.clientHeight === size[1])) return
         map.invalidateSize()
-        fit(false)
+        fly(false)
       })
       ro.observe(el)
-      draw()
+      render('view')
     })
     return () => {
       dead = true
+      clearTimeout(flyTimer)
       ro?.disconnect()
       map?.remove()
       map = null
     }
   })
 
+  // the report / the pair / the spotlight change what is drawn; a selection only moves the camera
+  // (render reads everything: untracked, so each effect runs only for its own inputs)
   $effect(() => {
     void report
     void pair
+    void spot
+    untrack(() => render('view'))
+  })
+  $effect(() => {
     void selected
-    draw()
+    untrack(() => render('select'))
   })
 </script>
 
@@ -161,4 +310,31 @@
   .map :global(.leaflet-control-attribution a) { color: var(--text-2); }
   .map :global(.leaflet-bar a) { background: var(--raise); color: var(--text); border-color: var(--edge-2); }
   .map :global(.leaflet-tooltip) { background: var(--raise); color: var(--text); border: 1px solid var(--edge-2); box-shadow: var(--rise-2); font-size: 11.5px; }
+
+  /* the build: each project is drawn along its outline, then filled */
+  .map :global(path.eh-draw) { stroke-dasharray: 1; animation: eh-draw 1.1s cubic-bezier(.3, .7, .2, 1) both; }
+  @keyframes eh-draw {
+    from { stroke-dashoffset: 1; fill-opacity: 0; opacity: .2; }
+    60% { fill-opacity: 0; }
+    to { stroke-dashoffset: 0; }
+  }
+  /* the overlaps light up once the projects are there */
+  .map :global(path.eh-ignite) { transform-box: fill-box; transform-origin: center; animation: eh-ignite .7s cubic-bezier(.2, .9, .3, 1.4) both; }
+  @keyframes eh-ignite {
+    from { opacity: 0; transform: scale(.2); stroke-width: 8; }
+    60% { opacity: 1; stroke-width: 5; }
+    to { transform: scale(1); }
+  }
+  /* the finding being discussed pulses */
+  .map :global(path.eh-pulse) { transform-box: fill-box; transform-origin: center; animation: eh-pulse 1.8s ease-out infinite; }
+  @keyframes eh-pulse {
+    from { transform: scale(.6); opacity: .95; }
+    to { transform: scale(2.4); opacity: 0; }
+  }
+  .map :global(path.eh-late) { animation: eh-late .5s ease-out both; }
+  .map :global(path.eh-late.eh-pulse) { animation: eh-late .5s ease-out both, eh-pulse 1.8s ease-out infinite; }
+  @keyframes eh-late { from { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .map :global(path.eh-draw), .map :global(path.eh-ignite), .map :global(path.eh-pulse), .map :global(path.eh-late) { animation: none; }
+  }
 </style>

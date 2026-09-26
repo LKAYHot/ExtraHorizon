@@ -1,6 +1,6 @@
 <script>
   import { app } from '$lib/app.svelte.js'
-  import { OVERLAP, PLAN_A, PLAN_B, fmtDate, fmtTiming, findingsOfPair, sideOf } from '$lib/coord.js'
+  import { OVERLAP, PLAN_A, PLAN_B, fmtDate, fmtTiming, shownFindings, sideOf } from '$lib/coord.js'
 
   // Gantt of the chosen pair's best findings: one row per finding, the plan-A project in blue
   // over the plan-B project in orange, the weeks both are scheduled shaded near-white, "today"
@@ -13,15 +13,18 @@
   const pair = $derived(app.coord.pair)
   const index = $derived(new Map((report?.projects_index ?? []).map((p) => [p.uid, p])))
   const items = $derived.by(() => {
-    const all = findingsOfPair(report, pair)
+    const all = shownFindings(report, pair, app.coord.spot)
     const top = all.slice(0, rows)
     const sel = all.find((f) => f.id === app.coord.selected)
     if (sel && !top.includes(sel)) top.push(sel)
     return top.map((f) => {
       const a = index.get(f.a)
       const b = index.get(f.b)
-      const [pa, pb] = sideOf(a.plan_short, pair) === 'b' ? [b, a] : [a, b]
-      return { f, a: pa, b: pb }
+      const [pa, pb] = sideOf(a.plan_short, pair, report) === 'b' ? [b, a] : [a, b]
+      // for all pairs the colour says utility network (blue) or road work (orange) — per project
+      const ca = pair === '*' && sideOf(pa.plan_short, pair, report) === 'b' ? PLAN_B : PLAN_A
+      const cb = pair === '*' && sideOf(pb.plan_short, pair, report) === 'a' ? PLAN_A : PLAN_B
+      return { f, a: pa, b: pb, ca, cb }
     })
   })
 
@@ -76,9 +79,9 @@
         <line x1={gx} x2={gx} y1={TOP - 6} y2={height - 6} class="grid" />
         {#if Math.abs(gx - x(today)) > 34}<text x={gx} y={12} class="tick" text-anchor="middle">{y}</text>{/if}
       {/each}
-      {#each items as { f, a, b }, i (f.id)}
-        {@const ba = bar(a, i, 0, PLAN_A)}
-        {@const bb = bar(b, i, 1, PLAN_B)}
+      {#each items as { f, a, b, ca, cb }, i (f.id)}
+        {@const ba = bar(a, i, 0, ca)}
+        {@const bb = bar(b, i, 1, cb)}
         <g class="row" class:sel={f.id === app.coord.selected} onclick={() => app.selectFinding(f.id)} role="button" tabindex="-1"
            onkeydown={(e) => e.key === 'Enter' && app.selectFinding(f.id)}>
           <rect x="0" y={TOP + i * ROW} width={width} height={ROW} class="hit" />
@@ -103,8 +106,8 @@
     </svg>
     {#if hover}<div class="tip" style:left="{Math.min(hover.x + 12, width - 240)}px" style:top="{hover.y + 12}px">{hover.text}</div>{/if}
     <div class="legend">
-      <span><i style:background={PLAN_A}></i>{pair?.split(' ↔ ')[0] ?? 'Plan A'}</span>
-      <span><i style:background={PLAN_B}></i>{pair?.split(' ↔ ')[1] ?? 'Plan B'}</span>
+      <span><i style:background={PLAN_A}></i>{pair === '*' ? 'utility networks' : pair?.split(' ↔ ')[0] ?? 'Plan A'}</span>
+      <span><i style:background={PLAN_B}></i>{pair === '*' ? 'road and other work' : pair?.split(' ↔ ')[1] ?? 'Plan B'}</span>
       <span><i class="ov"></i>both scheduled</span>
       <span class="faint">▸ runs past the edge</span>
     </div>

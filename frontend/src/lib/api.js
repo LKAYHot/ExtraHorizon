@@ -52,6 +52,11 @@ export async function coordClose(sessionId) {
   return jsonOrThrow(await fetch(`/api/coord/report?session_id=${sessionId}`, { method: 'DELETE' }))
 }
 
+/** One finding of the analysis on screen — also one the panel does not list. */
+export async function coordFinding(sessionId, id) {
+  return jsonOrThrow(await fetch(`/api/coord/finding?session_id=${sessionId}&id=${encodeURIComponent(id)}`, { cache: 'no-store' }))
+}
+
 /** Read both projects of a finding again from the county's service now. */
 export async function coordRecheck(sessionId, findingId) {
   const res = await fetch('/api/coord/recheck', {
@@ -94,7 +99,7 @@ export async function resetSession(sessionId) {
  * HTTP errors, a missing terminal event and a silent connection (idle watchdog)
  * all become onError — the UI can never stay in "thinking".
  */
-export async function streamChat(body, { onMeta, onDelta, onAnalysis, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
+export async function streamChat(body, { onMeta, onDelta, onAnalysis, onFocus, onTool, onRecheck, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
   let finished = false
   const finish = (fn, arg) => {
     if (finished) return
@@ -148,6 +153,9 @@ export async function streamChat(body, { onMeta, onDelta, onAnalysis, onDone, on
         if (ev.event === 'meta') onMeta?.(data)
         else if (ev.event === 'delta') onDelta?.(data.text ?? '')
         else if (ev.event === 'analysis') onAnalysis?.(data)
+        else if (ev.event === 'focus') onFocus?.(data)
+        else if (ev.event === 'tool') onTool?.(data)
+        else if (ev.event === 'recheck') onRecheck?.(data)
         else if (ev.event === 'done') finish(onDone, data)
         else if (ev.event === 'interrupted') finish(onInterrupted ?? onDone, data)
         else if (ev.event === 'error') finish(onError, data)

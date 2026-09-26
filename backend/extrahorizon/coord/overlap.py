@@ -198,7 +198,9 @@ def find_overlaps(projects: list[Project], geoms_lonlat: list[Any], params: Para
             inter = ga.intersection(gb)
             shared = float(inter.area)
             if not inter.is_empty:
-                geom = mapping(proj.inverse(shapely.set_precision(inter, 0.5)))
+                reduced = shapely.set_precision(inter, 0.5)
+                # a sliver of a square metre can vanish at 0.5 m precision: then its point, never an empty polygon
+                geom = mapping(proj.inverse(reduced if not reduced.is_empty else inter.representative_point()))
         if geom is None:
             geom = mapping(proj.inverse(shapely.shortest_line(ga, gb)))
         area = max(params.area_m, 1.0)

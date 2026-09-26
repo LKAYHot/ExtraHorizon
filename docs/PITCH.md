@@ -26,7 +26,8 @@ model only gets a few words like *"the learner looks mostly anxious; frowning"*.
 | 1:00 | Open an answer's **expression sent** chip | "Every answer shows what went into its prompt." |
 | 1:10 | **"Where do the utilities' construction plans overlap?"** | "Second skill: she reads Miami-Dade's public utility plans live, verifies every record and flags where two utilities will dig near each other at the same time." |
 | 1:20 | The map opens on F1 (blue sewer main × orange state road, white overlap); **Sources & checks** | Read the tiles aloud (on 2026-09-26: "2,815 records read, 386 verified future projects, every exclusion counted — and 64 of our 80 intersecting pairs are on the county's own conflict list"). "Every number she wrote is checked against this data." |
-| 1:30 | **New session** | "Clean slate for the next person." |
+| 1:30 | Ask out loud **"What about F one forty-six?"**, then **"Is it still true? Re-check it."** | "The map moved before she answered — she looks up any of the 583 findings, and just re-read both projects from the county's service." |
+| 1:45 | **New session** | "Clean slate for the next person." |
 
 If the camera misbehaves: say so, open **Demo simulation mode** (labelled SIMULATED / NOT LIVE everywhere) and pick
 an expression — the same engine → note → answer chain. Never present simulation as recognition. If the Wi-Fi dies:

@@ -16,9 +16,25 @@ from .verify import EXCLUDE_REASONS
 TOP_FACTS = 12
 
 
-def _fmt_project(p: dict[str, Any]) -> str:
+def fmt_project(p: dict[str, Any]) -> str:
     return (f'{p["plan_short"]} "{p["name"]}" (project {p["project_id"]}, {p["status"] or "status n/a"}, '
             f'{p["start"]} → {p["end"]})')
+
+
+_fmt_project = fmt_project
+
+
+def finding_line(f: dict[str, Any], projects: dict[str, dict[str, Any]]) -> str:
+    """One finding as the fact sheet (and her tools) state it."""
+    a, b = projects[f["a"]], projects[f["b"]]
+    county = "yes" if f["county"].get("listed") else "no"
+    return (f"{f['id']} — {f['category_label']} — {fmt_project(a)} ↔ {fmt_project(b)}: "
+            + "; ".join(f["reasons"]) + f"; in the county's conflict list: {county}.")
+
+
+def all_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every finding of the analysis (the panel lists only the strongest ones)."""
+    return report.get("_all_findings") or report["findings"]
 
 
 def fact_sheet(report: dict[str, Any], top: int = TOP_FACTS, mention: str = "") -> str:
@@ -77,7 +93,7 @@ def fact_sheet(report: dict[str, Any], top: int = TOP_FACTS, mention: str = "") 
         lines.append("Which plans overlap (findings per pair of plans): " + "; ".join(
             f"{e['plans'][0]} ↔ {e['plans'][1]}: {e['total']:,} (close and same time {e['both']:,})"
             for e in report["pairs"][:10]) + ".")
-    by_id = {f["id"]: f for f in report["findings"]}
+    by_id = {f["id"]: f for f in all_findings(report)}
     total = report.get("findings_total", s["findings"])
     if len(report["findings"]) < total:
         lines.append(f"Listed in the panel: the {len(report['findings']):,} strongest of the {total:,} findings, "
@@ -85,20 +101,22 @@ def fact_sheet(report: dict[str, Any], top: int = TOP_FACTS, mention: str = "") 
     chosen = [by_id[i] for i in report.get("highlights", []) if i in by_id][:top] or report["findings"][:top]
     lines.append(f"Highlighted findings (the best of each pair of plans, then the next best; {len(chosen)} of "
                  f"{s['findings']:,}):")
-    asked_ids = {m.upper() for m in _FID.findall(mention or "")}
-    for fid in sorted(asked_ids - set(by_id), key=lambda i: int(i[1:])):
-        lines.append(f"Asked about {fid}: " + (f"there is no {fid} in this analysis (F1–F{total})."
-                                               if int(fid[1:]) > total else "not among the listed findings."))
-    asked_pids = {t for t in re.findall(r"[\w.-]{4,}", mention or "")}
-    extra = [f for f in report["findings"] if f not in chosen and (
-        f["id"] in asked_ids or projects[f["a"]]["project_id"] in asked_pids
-        or projects[f["b"]]["project_id"] in asked_pids)][:8]
-    chosen = chosen + extra
+    # what the question points at — typed or spoken ("F сто сорок шесть" = F146), any finding of the analysis
+    from .refs import finding_ids, project_refs
+
+    asked_ids = finding_ids(mention or "")
+    for fid in [i for i in asked_ids if i not in by_id]:
+        lines.append(f"Asked about {fid}: there is no {fid} in this analysis (F1–F{total}).")
+    asked_pids = set(project_refs(mention or "", report))
+    extra = [by_id[i] for i in asked_ids if i in by_id and by_id[i] not in chosen]
+    extra += [f for f in all_findings(report) if f not in chosen and f not in extra and (
+        projects[f["a"]]["project_id"] in asked_pids or projects[f["b"]]["project_id"] in asked_pids)]
+    extra = extra[:10]
     for f in chosen:
-        a, b = projects[f["a"]], projects[f["b"]]
-        county = "yes" if f["county"].get("listed") else "no"
-        lines.append(f"{f['id']} — {f['category_label']} — {_fmt_project(a)} ↔ {_fmt_project(b)}: "
-                     + "; ".join(f["reasons"]) + f"; in the county's conflict list: {county}.")
+        lines.append(finding_line(f, projects))
+    if extra:
+        lines.append("Asked about in this question:")
+        lines += [finding_line(f, projects) + " Suggested: " + " ".join(f["actions"]) for f in extra]
     return "\n".join(lines)
 
 

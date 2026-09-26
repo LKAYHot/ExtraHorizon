@@ -21,6 +21,7 @@ in the demo build FastAPI serves the UI and the API from one origin.
 | `POST /api/coord/analyze` | run / re-run the analysis for a session (no chat turn) |
 | `GET  /api/coord/report?session_id=…` · `DELETE …` | the session's analysis on screen · close it |
 | `POST /api/coord/recheck` | read one finding's two records again from the county's service |
+| `GET  /api/coord/finding?session_id=…&id=F450` | one finding of the analysis on screen (also one the panel does not list) |
 
 ## Sessions
 
@@ -82,6 +83,10 @@ answer — so does a message that asks for it, see below). HTTP errors before th
 | `done` | `{assistant_message_id, finish_reason, ttft_ms, elapsed_ms, model, created, interrupted: false}` — committed to history |
 | `interrupted` | same as `done` with `interrupted: true` — stopped by barge-in / stop; the partial answer is committed and marked |
 | `error` | `{code, message, retryable}` — nothing committed |
+| `focus` | the map follows the conversation: `{ids: ["F146"], total, label, project: uid|null, source: "question"|"tool"|"answer", report_id, findings: [finding objects the panel does not list], within?: true}` — at most 50 ids (`total` = how many matched); `within: true` = her answer picks one finding out of what the map already shows (the spotlight stays); a focus for another `report_id` than the panel's is dropped |
+| `tool` | she looked something up (follow-up analysis turns): `{name: "find_findings"|"get_project"|"show_on_map"|"recheck_finding", summary}` — the summary names the filters and a non-default order ("DTPW · Paving · closest first"); the same look-up twice in a turn is one tag |
+| `recheck` | a live re-check she ran: `{id: "F135", result: {…as POST /api/coord/recheck…}, report_id}` |
+| `working` | `{what: "look-up", name}` every 5 s while a look-up runs (a live re-check reads the county's service) — keeps the stream alive; clients may ignore it |
 | `analysis` | only in an analysis turn, before the first `delta`: `{state: "running"}` → `{state: "progress", phase, step, source?, title?, records?, message?}` (per layer read and per step; `phase: "waiting"` every 5 s while the county's service is slow) → `{state: "ready", report_id, findings, by_category, projects, plans, offline}` or `{state: "error", message}` (she then says plainly that it failed); `{state: "cancelled"}` when the turn ends before the analysis did (Stop, a newer question, an error) |
 
 **Analysis turns** (docs/ANALYSIS.md §6). `run` (the analysis runs first): `analysis: true`, or — with no analysis
@@ -92,7 +97,18 @@ project ID, the utilities, overlaps, the map, the county…). Anything else is a
 `{mode: "run"|"context", report_id|null}` or `null`. Her prompt then holds the **fact sheet** (the only facts she may
 state) and the report rules; `max_completion_tokens` is `EH_COORD_MAX_OUTPUT_TOKENS` (3000), the total time
 `EH_COORD_LLM_TOTAL_TIMEOUT_S` (150 s), and only her first paragraph is voiced (up to the first line break).
-`done.analysis` and `interrupted.analysis` = `{mode, report_id, live?: <the terminal analysis event>, check: {ok,
+In `context` turns she has **tools** (docs/ANALYSIS.md §6): the request offers `find_findings`, `get_project`,
+`show_on_map`, `recheck_finding`; a round that asks for tools gets their results (`tool` events; `focus` / `recheck`
+as they apply) and the next round continues her answer (at most 3 look-up rounds; the round after the third is sent
+with `tool_choice: "none"`). After each round's results a short system note repeats the language rule right before
+she answers. Finding IDs spoken as words are read ("F сто сорок шесть" = F146): the finding's details go into the
+sheet, the ID is appended to her prompt, and a `focus` moves the map before she answers. The map then follows her
+answer too: with nothing focused yet, the first finding she names; after a question or look-up focused several
+findings, the first of *those* she names (`within`). Analysis answers are in English even to Russian questions,
+unless the message itself asks for Russian ("по-русски", "на русском", "in Russian"): a question in Russian is followed
+in her prompt by one more system message with the language rule.
+`done.analysis` and `interrupted.analysis` = `{mode, report_id, live?: <the terminal analysis event>, tools?: [{name,
+summary}], check: {ok,
 checked, unknown: ["2426", "62", "March 5, 2027", "80%", "F999", …]}}` — the grounding check (numbers ≥ 10 and numbers
 with units, dates in any common form, percentages, finding IDs; a number from a project's name or ID only in its
 context) against the sheet; the same object is stored with the assistant message (`live` keeps the result card
@@ -192,7 +208,7 @@ Server → client:
 {"type": "stt", "utt": 3, "text": "Explain recursion", "final": false}             // live transcript of one utterance
 {"type": "heard", "utt": 3, "turn_no": 5, "text": "Explain recursion to me."}      // the whole question (joined)
 {"type": "stt_ignored", "utt": 3, "turn_no": 5, "reason": "empty|echo|stop|stopped|backchannel", "text": "Wait, stop."}   // stopped: Stop/barge-in/reset came first; backchannel: "okay"/"угу" while her analysis report is written silently
-{"type": "turn", "event": "meta|analysis|delta|done|interrupted|error|dropped", "turn_no": 5, "data": {…as in SSE…}}  // dropped: {reason: "merged|discarded|stopped"} — remove the turn (it was never heard)
+{"type": "turn", "event": "meta|analysis|focus|tool|recheck|delta|done|interrupted|error|dropped", "turn_no": 5, "data": {…as in SSE…}}  // dropped: {reason: "merged|discarded|stopped"} — remove the turn (it was never heard)
 {"type": "filler", "turn_no": 5, "text": "Hmm..."}
 {"type": "audio_begin", "turn_no": 5, "kind": "filler|answer", "sample_rate": 44100}
 // binary: 4-byte big-endian turn_no + PCM16LE mono audio of that turn (a filler and its answer share the turn number)
@@ -259,7 +275,8 @@ The report:
                "overlap_days",        // > 0: days both are scheduled (end dates count); ≤ 0: −(days between them), 0 = back to back
                "gap_days", "window": [start, end] (nulls when apart),
                "reasons": [...], "actions": [...], "score", "geometry": {GeoJSON}, "county": {"listed", "object_id", "record_url"}}],
- "findings_total": 583,               // "findings" lists the 300 strongest + the 25 best of every pair + every highlighted one
+ "findings_total": 583,               // "findings" lists the 300 strongest + the 25 best of every pair + every highlighted one;
+                                      // all of them stay on the server for her tools (never in a response)
  "projects_index": [{"uid", "source", "object_id", "project_id", "name", "scope", "agency", "agency_short", "facility",
                      "kind", "plan", "plan_short", "status", "agency_status", "start", "end", "updated",
                      "record_url", "notes", "parts"}],     // no contact data

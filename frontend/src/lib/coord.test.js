@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtDistance, fmtTiming, findingsOfPair, orderPair, pairKey, sideOf, yearTicks } from './coord.js'
+import { ALL_PAIRS, fmtDistance, fmtTiming, findingsOfPair, orderPair, pairKey, shownFindings, sideOf, yearTicks } from './coord.js'
 
 describe('coordination helpers', () => {
   it('formats distances and timing in words a planner reads', () => {
@@ -45,5 +45,17 @@ describe('coordination helpers', () => {
   it('year ticks cover the whole range, every second year on long ranges', () => {
     expect(yearTicks('2026-03-01', '2028-06-30')).toEqual([2026, 2027, 2028, 2029])
     expect(yearTicks('2014-07-01', '2040-06-30')[1] - yearTicks('2014-07-01', '2040-06-30')[0]).toBe(2)
+  })
+
+  it('the spotlight (what she looked up) and "all pairs" colour by network vs road work', () => {
+    const report = {
+      plans: [{ label: 'WASD · Water', utility: true }, { label: 'FDOT · Roadway', utility: false }],
+      findings: [{ id: 'F1', plans: ['WASD · Water', 'FDOT · Roadway'] }, { id: 'F2', plans: ['WASD · Water', 'FDOT · Roadway'] }],
+    }
+    expect(findingsOfPair(report, ALL_PAIRS)).toHaveLength(2)
+    expect(shownFindings(report, 'WASD · Water ↔ FDOT · Roadway', { ids: ['F2'] }).map((f) => f.id)).toEqual(['F2'])
+    expect(shownFindings(report, ALL_PAIRS, null)).toHaveLength(2)
+    expect(sideOf('WASD · Water', ALL_PAIRS, report)).toBe('a')
+    expect(sideOf('FDOT · Roadway', ALL_PAIRS, report)).toBe('b')
   })
 })

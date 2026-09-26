@@ -24,7 +24,11 @@ future projects are physically close or scheduled around the same time** (so the
 one excavation), **cross-checks** the result against the county's own conflict list, and shows it on a **map**, a
 **findings list** with live re-checks, a **schedule chart** and a **sources & checks** table. Rika explains it out
 loud and in a detailed written report; every number, date and finding ID she writes is checked against the verified
-data. Method, sources and limitations: [docs/ANALYSIS.md](docs/ANALYSIS.md).
+data. Ask her about **any** finding — by number (also spoken: "F сто сорок шесть"), street, project or plan: she
+looks it up across all findings, re-checks it live at the county on request, and **the map follows the
+conversation** (a finding ID in her answer is a button too). The analysis is **built on screen**: the county's
+layers arrive step by step, the map draws the projects and lights up the overlaps. Method, sources and
+limitations: [docs/ANALYSIS.md](docs/ANALYSIS.md).
 
 ---
 

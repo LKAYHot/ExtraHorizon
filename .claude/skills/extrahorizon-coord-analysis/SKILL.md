@@ -22,6 +22,8 @@ grounding, limitations). Every message and field: **`docs/CONTRACT.md`** (`/api/
 | Fact sheet (what she may say), grounding check, pairs, highlights | `coord/report.py` |
 | Reading + cache (memory 6 h, last copy on disk, failed reads retried after 60 s), verify, assemble, live re-check | `coord/service.py` |
 | "Is this question about the analysis?" (EN + RU) · refresh words | `coord/intent.py` |
+| Finding IDs typed or spoken ("F сто сорок шесть", "F one forty-six") · project refs · IDs written into her prompt | `coord/refs.py` |
+| Her tools over ALL findings (find / project / show on map / live re-check) · `focus` and `recheck` events | `coord/tools.py` · the look-up rounds and map focus in `turns.py` (`_tool_runner`, `_focus_question`, `_focus_answer`) |
 | Report rules in her prompt · persona exception | `context.py` (`ANALYSIS_REPLY_NOTE`, `ANALYSIS_FOLLOWUP_NOTE`) |
 | Analysis turns (run / context), progress events, 3,000-token budget, grounding stored with the answer | `sessions.py` (`plan_chat`, `analysis_messages`), `turns.py` (`_run_analysis`) |
 | REST routes | `app.py` (`/api/coord/*`) |
@@ -67,6 +69,16 @@ panel opens on the strongest finding and its pair; *Sources & checks* shows ever
    after the spoken summary, "okay" does not cut the written report and a real question keeps what was written.
 6c. **Stays responsive**: the CPU part runs in a worker thread; a slow county read sends a heartbeat every 5 s; the
    camera frames resume when the camera panel comes back.
+6d. **She knows the whole analysis**: finding IDs are read however they arrive (typed or as English / Russian
+   words); in follow-ups she has tools over all findings (not only the sheet) — never "not in the summary" before a
+   look-up; tool results are facts for the grounding check; the first report is written from the sheet without
+   tools (faster, shorter). The map follows the question, her look-ups and her answer (the first finding she names;
+   after a look-up, the first of *its* findings she names is picked out of the spotlight — `within`); finding IDs in
+   her answers are buttons for the report on screen only (`report_id`); the full list of findings stays on the server
+   (`public_report`). A search needs every distinctive word; a plan named in the text is that plan. Analysis answers
+   are in English even to Russian questions — the rule opens both analysis notes and `after_tools_note` repeats it
+   after each look-up round; a message asking for Russian ("по-русски", "на русском", "in Russian") gets Russian
+   (`analysis_language` in `context.py`).
 7. **Honest data-flow wording** in the privacy card, the Sources tab, README and `EXTERNAL_DEPENDENCIES.md`: ArcGIS
    (queries only), OpenAI (public facts), OpenStreetMap tiles (the viewer's browser, IP address).
 8. **Colours**: the utility network blue `#3987e5`, the road work orange `#d95926` (`orderPair`), overlaps near-white,
@@ -84,6 +96,17 @@ panel opens on the strongest finding and its pair; *Sources & checks* shows ever
   and `editingInfo`; the findings order is stable for the same data.
 - **Re-check says "changed"** → the county changed that project (status / dates) or it no longer passes the checks —
   that is the point of the button; the fact sheet of the current report is still the one she uses.
+- **She says something is not in the data / the map did not move** → the backend log has one line per look-up
+  (`turn N tool find_findings({...}) → N chars`); check `finding_ids("<the question>")` in `coord/refs.py` for spoken
+  numbers; a follow-up only gets tools in `context` mode (`about_analysis`).
+- **She answered an analysis question in Russian** → the request must hold the language rule at the start of the
+  analysis note, `ANALYSIS_LANGUAGE_NOTE` right after a question in Russian and, after look-ups,
+  `after_tools_note(...)` as the last message; if she still drifts, the question may contain "по-русски" / "на
+  русском" (then Russian is right).
+- **The map is not visible after a question** → the `.stage` block in `AnalysisPanel.svelte` (plan picker, spotlight
+  banner, map) is sticky; below 700 px of height it is not (the map then scrolls with the list).
+- **A count is too high ("48 findings involve DTPW Paving")** → the look-up searched project names; see the logged
+  arguments: plans go in `plans`, and a text that is exactly a plan's name is turned into it (`_plan_named`).
 - **Map without streets** → the browser cannot reach `tile.openstreetmap.org` (network requests in the pane); data
   layers still draw. **Map framed wrongly** → `fit()` in `CoordMap.svelte` (selected finding → its two projects; else
   the pair's projects; refit when the container size changes).

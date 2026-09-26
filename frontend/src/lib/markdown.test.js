@@ -39,3 +39,16 @@ describe('voice cues in answers', () => {
     expect(html).toContain('&lt;b&gt;')
   })
 })
+
+describe('finding IDs in analysis answers', () => {
+  it('become buttons that show the finding on the map — only when asked for', () => {
+    const html = renderMarkdown('**F146** overlaps, then F1 and F23.', { fids: true })
+    expect(html).toContain('<button type="button" class="fid" data-fid="F146"')
+    expect(html.match(/class="fid"/g)).toHaveLength(3)
+    expect(renderMarkdown('The F1 score is fine.')).not.toContain('<button')
+  })
+  it('never inside links, code or words', () => {
+    const html = renderMarkdown('[F12](https://example.org/F12) `F13` BF14 F15x', { fids: true })
+    expect(html).not.toContain('data-fid')
+  })
+})

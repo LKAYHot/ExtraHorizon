@@ -1,6 +1,7 @@
 <script>
+  import { tick, untrack } from 'svelte'
   import { app } from '$lib/app.svelte.js'
-  import { CATEGORY, PLAN_A, PLAN_B, fmtDate, fmtDistance, fmtNum, fmtTiming, findingsOfPair, sideOf } from '$lib/coord.js'
+  import { CATEGORY, PLAN_A, PLAN_B, fmtDate, fmtDistance, fmtNum, fmtTiming, shownFindings, sideOf } from '$lib/coord.js'
   import { Check, CircleAlert, LoaderCircle, MapIcon, RefreshCw } from '$lib/icons.js'
 
   let { limit = 40 } = $props()
@@ -10,26 +11,44 @@
   const report = $derived(app.coordReport)
   const pair = $derived(app.coord.pair)
   const index = $derived(new Map((report?.projects_index ?? []).map((p) => [p.uid, p])))
-  const list = $derived(findingsOfPair(report, pair).filter((f) => filter === 'all' || f.category === filter))
+  const spot = $derived(app.coord.spot)
+  const list = $derived(shownFindings(report, pair, spot).filter((f) => filter === 'all' || f.category === filter))
   const counts = $derived.by(() => {
     const c = { all: 0, both: 0, near: 0, same_time: 0 }
-    for (const f of findingsOfPair(report, pair)) {
+    for (const f of shownFindings(report, pair, spot)) {
       c.all++
       c[f.category]++
     }
     return c
   })
-  const colorOf = (p) => (sideOf(p.plan_short, pair) === 'a' ? PLAN_A : sideOf(p.plan_short, pair) === 'b' ? PLAN_B : 'var(--faint)')
+  const colorOf = (p) => {
+    const side = sideOf(p.plan_short, pair, report)
+    return side === 'a' ? PLAN_A : side === 'b' ? PLAN_B : 'var(--faint)'
+  }
 
   $effect(() => {
     void pair
     void filter
+    void spot
     shown = limit
   })
+  // the finding she talks about is always on the list (the map follows the conversation, so does the list)
+  $effect(() => {
+    const i = list.findIndex((f) => f.id === app.coord.selected)
+    if (i >= untrack(() => shown)) shown = i + 1
+  })
 
-  function scrollToSelected(node, id) {
-    if (id === app.coord.selected) node.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }
+  // …and its card comes into view under the map (the map block stays on top while the list scrolls)
+  let listEl = $state()
+  $effect(() => {
+    const id = app.coord.selected
+    void shown
+    if (!id || !listEl) return
+    tick().then(() => {
+      const still = matchMedia('(prefers-reduced-motion: reduce)').matches
+      listEl?.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: still ? 'auto' : 'smooth' })
+    })
+  })
 </script>
 
 <div class="findings" data-testid="coord-findings">
@@ -41,7 +60,7 @@
     {/each}
   </div>
 
-  {#if report && report.findings_total > report.findings.length}
+  {#if report && !spot && report.findings_total > report.findings.length}
     <p class="note" data-testid="coord-listed">Listing the {fmtNum(report.findings.length)} strongest of {fmtNum(report.findings_total)} findings —
       every pair of plans and every finding {app.persona} highlights included.</p>
   {/if}
@@ -49,12 +68,13 @@
     <p class="empty">No findings of this kind for this pair of plans.</p>
   {/if}
 
-  <ul class="list">
-    {#each list.slice(0, shown) as f (f.id)}
+  <ul class="list" bind:this={listEl}>
+    {#each list.slice(0, shown) as f, i (f.id)}
       {@const a = index.get(f.a)}
       {@const b = index.get(f.b)}
       {@const rc = app.coord.rechecks[f.id]}
-      <li class="card-f" class:sel={f.id === app.coord.selected} data-testid="coord-finding" data-id={f.id} use:scrollToSelected={f.id}>
+      <li class="card-f" class:sel={f.id === app.coord.selected} data-testid="coord-finding" data-id={f.id}
+          style:animation-delay="{Math.min(i, 12) * 35}ms">
         <div class="top">
           <button class="fid" onclick={() => app.selectFinding(f.id)} title="Show on the map">{f.id}</button>
           <span class="cat {f.category}">{CATEGORY[f.category].short}</span>
@@ -113,7 +133,8 @@
   .filters .n { color: var(--faint); margin-left: 3px; font-weight: 500; }
   .empty { color: var(--muted); font-size: 12.5px; margin: 6px 2px; }
   .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
-  .card-f { padding: 9px 11px; border-radius: var(--radius-sm); background: var(--plane-bg); box-shadow: var(--ring), var(--rise-1); display: flex; flex-direction: column; gap: 6px; }
+  .card-f { padding: 9px 11px; border-radius: var(--radius-sm); background: var(--plane-bg); box-shadow: var(--ring), var(--rise-1); display: flex; flex-direction: column; gap: 6px;
+    scroll-margin-top: calc(var(--stage-h, 0px) + 10px); scroll-margin-bottom: 12px; }
   .card-f.sel { box-shadow: 0 0 0 1.5px color-mix(in srgb, #eef2ff 70%, transparent), var(--rise-2); }
   .top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 11.5px; }
   .fid { border: 0; background: var(--well); color: var(--text); font: 650 11.5px var(--mono); padding: 2px 7px; border-radius: 6px; cursor: pointer; box-shadow: var(--sink); }
@@ -141,4 +162,7 @@
   .rc.changed, .rc.error { color: var(--warn); }
   .more { align-self: center; }
   .note { margin: 0 2px 8px; font-size: 11.5px; color: var(--muted); }
+  .card-f { animation: card-in .4s ease-out both; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(6px); } }
+  @media (prefers-reduced-motion: reduce) { .card-f { animation: none; } }
 </style>

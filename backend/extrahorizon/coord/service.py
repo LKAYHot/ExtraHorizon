@@ -25,7 +25,7 @@ from .catalog import BOUNDARY, BY_KEY, CONFLICTS, PUBLISHER, REGION, SOURCES, So
 from .crosscheck import county_pairs, cross_check
 from .model import Project, canonical_agency, clean, epoch_ms_to_date, from_row
 from .overlap import LocalProjection, Params, find_overlaps
-from .report import excluded_totals, fact_sheet, highlights, plan_pairs, summarize
+from .report import all_findings, excluded_totals, fact_sheet, highlights, plan_pairs, summarize
 from .verify import EXCLUDE_REASONS, SourceAudit, check_geometry, county_region, dataset_checks, record_verdict
 
 log = logging.getLogger("extrahorizon.coord")
@@ -319,6 +319,7 @@ class CoordService:
             if per_pair.get(key, 0) < PER_PAIR_FINDINGS:
                 per_pair[key] = per_pair.get(key, 0) + 1
                 listed.add(f.id)
+        pub = [f.public() for f in findings]
         excluded = excluded_totals(pub_audits)
         received = sum(a.received for a in audits)
         passed = received - sum(e["count"] for e in excluded)  # every record is excluded once or kept
@@ -363,7 +364,9 @@ class CoordService:
             "pairs": plan_pairs(findings),
             "highlights": hl,
             "findings_total": len(findings),
-            "findings": [f.public() for f in findings if f.id in listed],
+            "findings": [x for x in pub if x["id"] in listed],
+            # every finding, for her tools and the fact sheet (server side only — see public_report)
+            "_all_findings": pub,
             "projects_index": [p.public() for p in projects],
             "projects_geojson": {"type": "FeatureCollection", "features": features},
         }
@@ -371,7 +374,7 @@ class CoordService:
     # ------------------------------------------------------------------ live re-check
     async def recheck(self, report: dict[str, Any], finding_id: str) -> dict[str, Any]:
         """Read both projects of a finding again from the county's service right now and compare."""
-        f = next((x for x in report["findings"] if x["id"] == finding_id), None)
+        f = next((x for x in all_findings(report) if x["id"] == finding_id), None)
         if f is None:
             raise KeyError(finding_id)
         index = {p["uid"]: p for p in report["projects_index"]}
@@ -444,3 +447,10 @@ class CoordService:
 
 def fact_sheet_for(report: dict[str, Any] | None) -> str | None:
     return fact_sheet(report) if report else None
+
+
+def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The report as the browser gets it: without the server-side keys (``_all_findings``)."""
+    if report is None:
+        return None
+    return {k: v for k, v in report.items() if not k.startswith("_")}
