@@ -13,7 +13,7 @@ const CAMERA_ERRORS = {
  * Camera capture + the /api/vision WebSocket.
  *
  * Frames: the browser downsizes the live video to `frame_width` px, encodes JPEG and
- * sends it to the LOCAL backend. Exactly one frame is in flight: the next one is sent
+ * sends it to the LOCAL backend (face landmarks + on-device expression model). Exactly one frame is in flight: the next one is sent
  * after the backend acknowledges the previous one (a `tick` with the same seq) or after
  * a 1.5 s timeout, capped at `max_fps` — the pipeline adapts to the machine's speed and
  * never builds a backlog. Nothing is recorded or stored in the browser.
@@ -25,11 +25,13 @@ export class VisionController {
   backend = $state.raw({ available: null, reason: null })
   clientIsLoopback = $state(null)
   config = $state.raw({
-    max_fps: 12, frame_width: 480, jpeg_quality: 0.75, alpha: 0.2, reference_fps: 10,
-    threshold: 0.65, hold_s: 2, cooldown_s: 15, calibration_s: 2.5, relief_threshold: 0.45,
+    max_fps: 12, frame_width: 480, jpeg_quality: 0.8, alpha: 0.35, reference_fps: 10, switch_hold_s: 0.8, switch_margin: 0.08,
   })
   fps = $state(0)
   latencyMs = $state(null)
+  // per-person calibration of the expression estimate (the relaxed face is learned first)
+  calibration = $state.raw({ state: 'collecting', progress: 0, sensitivity: readPref('emotionSensitivity', 'balanced') })
+  sensitivity = $state(readPref('emotionSensitivity', 'balanced')) // calm | balanced | expressive
   // informed consent (shown in the camera card) is required once before the camera ever starts;
   // after that the camera follows the user's last on/off choice
   consented = $state(readPref('cameraConsent', false))
@@ -98,6 +100,8 @@ export class VisionController {
       this.#reconnectDelay = 500
       this.#inflight = null
       this.#sendJSON({ type: 'camera', status: this.camera === 'active' && document.hidden ? 'paused' : this.camera })
+      // the learner's choice wins over the server default (EH_EMOTION_SENSITIVITY) and survives reconnects
+      this.#sendJSON({ type: 'sensitivity', level: this.sensitivity })
       this.#syncSim()
       this.#scheduleFrame()
     }
@@ -152,15 +156,24 @@ export class VisionController {
         }
         break
       case 'snapshot':
+        if (m.calibration) this.calibration = m.calibration
         app.onSnapshot(m)
         break
-      case 'tick':
+      case 'tick': {
+        const cal = m.vision?.calibration ?? m.calibration
+        if (cal) this.calibration = cal
         this.#onTick(m)
         app.onTick(m)
         break
-      case 'event':
-      case 'event_update':
-        app.onEvent(m.event)
+      }
+      case 'calibration':
+        this.calibration = m.calibration
+        break
+      case 'emotion_note':
+        app.onEmotionNote(m.context)
+        break
+      case 'assistant_interrupted':
+        app.onAssistantInterrupted(m.message_id)
         break
       case 'marker':
         app.onMarker(m.marker)
@@ -245,8 +258,17 @@ export class VisionController {
     this.#setCamera('off', '')
   }
 
+  /** Learn the learner's relaxed face again (~2.5 s): look at the screen with a relaxed face. */
   recalibrate() {
+    this.calibration = { ...this.calibration, state: 'collecting', progress: 0 }
     this.#sendJSON({ type: 'calibrate' })
+  }
+
+  /** calm | balanced | expressive — how readily an expression is reported. */
+  setSensitivity(level) {
+    this.sensitivity = level
+    writePref('emotionSensitivity', level)
+    this.#sendJSON({ type: 'sensitivity', level })
   }
 
   #releaseStream() {
@@ -340,11 +362,12 @@ export class VisionController {
   }
 
   // ------------------------------------------------------------------ labelled Demo simulation mode
+  // a chosen expression drives the SAME emotion engine (10 Hz), every sample tagged "simulation"
   #syncSim() {
     const sim = this.#app.sim
     this.#stopSim()
     if (!sim.enabled) return
-    const tick = () => this.#sendJSON({ type: 'sim', enabled: true, value: this.#app.sim.value })
+    const tick = () => this.#sendJSON({ type: 'sim', enabled: true, emotion: this.#app.sim.emotion, intensity: this.#app.sim.intensity })
     tick()
     this.#simTimer = setInterval(tick, 100)
   }

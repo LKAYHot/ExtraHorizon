@@ -1,54 +1,60 @@
 <script>
   import { app } from '$lib/app.svelte.js'
-  import { ScanFace, TriangleAlert, RefreshCw } from '$lib/icons.js'
+  import { HeartPulse, TriangleAlert, RefreshCw } from '$lib/icons.js'
   import CameraCard from './CameraCard.svelte'
-  import SignalCard from './SignalCard.svelte'
-  import Timeline from './Timeline.svelte'
+  import EmotionNow from './EmotionNow.svelte'
+  import Circumplex from './Circumplex.svelte'
+  import EmotionTimeline from './EmotionTimeline.svelte'
+  import PromptCard from './PromptCard.svelte'
   import SimulationCard from './SimulationCard.svelte'
-  import SignalDetails from './SignalDetails.svelte'
   import PrivacyCard from './PrivacyCard.svelte'
 
   const v = app.vision
   const REASONS = {
     disabled: 'Vision is switched off on the server (EH_VISION_ENABLED=false / --no-vision).',
-    model_missing: 'The face model file is missing — run setup (model download).',
-    model_download_failed: 'The face model could not be downloaded (offline?) — run setup again when online.',
-    model_checksum_mismatch: 'The downloaded face model failed its checksum — run setup again.',
+    model_missing: 'A vision model file is missing — run setup (model download).',
+    model_download_failed: 'A vision model could not be downloaded (offline?) — run setup again when online.',
+    model_checksum_mismatch: 'A downloaded model failed its checksum — run setup again.',
   }
   const reasonText = (r) => (r ? (REASONS[r] ?? (r.startsWith('mediapipe_error') ? 'MediaPipe could not start on this machine — see the backend log.' : r)) : '')
   const banner = $derived.by(() => {
-    if (v.socket === 'superseded') return { text: 'This session is open in another tab.', action: 'Use here' }
-    if (v.backend.available === false) return { text: 'Vision unavailable — chat still works.', detail: reasonText(v.backend.reason) }
+    if (v.socket === 'superseded' || app.voice.socket === 'superseded') return { text: 'This session is open in another tab.', action: 'Use here' }
+    if (v.backend.available === false) return { text: 'Vision unavailable — chat and voice still work.', detail: reasonText(v.backend.reason) }
     if (v.socket === 'closed' && app.backendUp === false) return { text: 'Backend offline — reconnecting…' }
-    if (['denied', 'unavailable', 'ended'].includes(v.camera)) return { text: 'Vision unavailable — chat still works.', detail: v.cameraMessage }
-    if (v.camera === 'off') return { text: 'Camera off — chat still works.' }
+    if (['denied', 'unavailable', 'ended'].includes(v.camera)) return { text: 'Camera unavailable — chat and voice still work.', detail: v.cameraMessage }
     return null
   })
+
+  function useHere() {
+    v.reconnectNow()
+    app.voice.reconnectNow()
+  }
 </script>
 
-<aside class="vision" aria-label="Local vision signal">
+<aside class="panel" aria-label="Facial expression (estimate)">
   <header class="head">
-    <div class="title"><ScanFace size={16} /> <h2>Vision</h2><span class="chip">{app.local ? 'local · estimate' : 'estimate'}</span></div>
+    <div class="title"><HeartPulse size={16} /> <h2>Expression</h2><span class="chip">{app.local ? 'on-device · estimate' : 'estimate'}</span></div>
   </header>
   {#if banner}
     <div class="banner" role="status" data-testid="vision-banner">
       <TriangleAlert size={15} />
       <div class="grow"><strong>{banner.text}</strong>{#if banner.detail}<div class="detail">{banner.detail}</div>{/if}</div>
-      {#if banner.action}<button class="btn sm" onclick={() => v.reconnectNow()}><RefreshCw size={13} /> {banner.action}</button>{/if}
+      {#if banner.action}<button class="btn sm" onclick={useHere}><RefreshCw size={13} /> {banner.action}</button>{/if}
     </div>
   {/if}
   <div class="stack">
     <CameraCard />
-    <SignalCard />
-    <Timeline />
+    <EmotionNow />
+    <Circumplex />
+    <EmotionTimeline />
+    <PromptCard />
     <SimulationCard />
-    <SignalDetails />
     <PrivacyCard />
   </div>
 </aside>
 
 <style>
-  .vision {
+  .panel {
     display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
     background: linear-gradient(180deg, rgb(12 20 40 / .55), rgb(8 13 28 / .5));
     box-shadow: inset 1px 0 0 rgb(170 190 255 / .06), -30px 0 60px -40px rgb(0 0 10 / .9);
@@ -65,5 +71,5 @@
   .banner :global(svg) { flex: 0 0 auto; color: var(--warn); margin-top: 1px; }
   .detail { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
   .stack { display: flex; flex-direction: column; gap: 12px; padding: 0 14px 16px; }
-  @media (max-width: 859px) { .vision { overflow: visible; } }
+  @media (max-width: 859px) { .panel { overflow: visible; } }
 </style>

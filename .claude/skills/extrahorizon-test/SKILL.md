@@ -1,42 +1,49 @@
 ---
 name: extrahorizon-test
-description: Run and extend the ExtraHorizon automated test suites — backend pytest (state engine, context builder, API with a fake LLM, vision/MediaPipe, secret scan), frontend vitest + svelte-check, Playwright e2e with a virtual camera, and the live demo_check against the real OpenAI model. Use this after ANY code change in backend/ or frontend/, before claiming something works, when a test fails, when adding a feature that needs a test, or when the user asks "проверь", "прогони тесты", "does it still work", "run CI" — even for small edits.
+description: Run and extend the ExtraHorizon automated test suites — backend pytest (per-person calibration, emotion engine, context/persona, voice pipeline with fake providers, live voice socket turn-taking, STT/VAD/Fish clients, API, real MediaPipe + expression model, secret scan), frontend vitest + svelte-check, Playwright e2e with a virtual camera and a virtual microphone, and the live demo_check against the real providers. Use this after ANY code change in backend/ or frontend/, before claiming something works, when a test fails, when adding a feature that needs a test, or when the user asks "проверь", "прогони тесты", "does it still work", "run CI" — even for small edits.
 ---
 
 # Testing ExtraHorizon
 
-Run the cheapest layer that can catch the bug first, then widen. Everything below runs
-without the user's webcam; only `demo_check` touches the real LLM (costs a few cents).
+Run the cheapest layer that can catch the bug first, then widen. Everything below runs without the user's
+webcam or microphone; only `demo_check` uses the real providers (costs a few cents).
 
 | Layer | Command | Time | Needs |
 |---|---|---|---|
-| Backend unit + integration | `cd backend && uv run pytest` | ~15 s | nothing (fake LLM) |
-| Frontend unit | `cd frontend && npx vitest run` | ~1 s | — |
-| Types / a11y / Svelte | `cd frontend && npx svelte-kit sync && npx svelte-check --threshold warning` | ~10 s | — |
-| Browser e2e (4 camera setups) | `cd frontend && npm run e2e` | ~1 min | Edge (default) — `PW_CHANNEL=chrome` to switch |
-| Live chain, real LLM | backend running, then `cd backend && uv run python scripts/demo_check.py --runs 10` | ~1 min | key in `.env`, internet |
-| Everything | `.\scripts\test.ps1 -E2E` | ~2 min | |
+| Backend unit + integration | `cd backend && uv run pytest` | ~20 s | nothing (fake LLM, mock TTS/STT, energy VAD) |
+| Frontend unit | `cd frontend && npx vitest run` | ~3 s | — |
+| Types / a11y / Svelte | `cd frontend && npx svelte-kit sync && npx svelte-check --threshold warning` | ~15 s | — |
+| Browser e2e (camera setups + voice) | `cd frontend && npm run e2e` | ~1 min | Edge (default; `PW_CHANNEL=chrome` to switch); Windows SAPI for the virtual mic |
+| Live chain, real providers | backend running, then `cd backend && uv run python scripts/demo_check.py --runs 3 --speech ../frontend/e2e/.cache/question.wav` | ~1 min | keys in `.env`, internet |
+| Everything | `.\scripts\test.ps1 -E2E` | ~5 min | |
+
+A test that blocks on a WebSocket forever is a bug in the test: use the timeout helpers (`Live.until` in
+`test_live.py`, `sync()` ping/pong in `test_api.py`).
 
 ## What each suite protects (don't weaken these to make a change pass)
 
-- `tests/test_engine.py` — the adaptation rule: short spikes never fire; ≥ hold_s of wall-clock time fires exactly once; one event per episode (no nagging after the cooldown; re-armed by a real drop or a new answer); dips / unknown / multi-face / data gaps reset the timer; EMA is frame-rate independent; simulation never inherits camera state; decrease is reported only when measured; sessions are isolated; frames in flight after "camera off" are ignored.
-- `tests/test_context.py` — no adaptation note before an event; after one: strategy + previous answer in context; the serialized OpenAI payload contains no image/landmark/blendshape data, no signal numbers, no `%`, and the note has **no digits at all**; strategies rotate; the note is not persisted into later turns.
-- `tests/test_api.py` — SSE stream delivered to the end and committed; LLM error / mid-stream failure / first-token hang / stall all end with a retryable `error` and commit nothing; retry works; missing key → immediate `llm_not_configured`; vision unavailable or garbage frames never break chat; full chain over HTTP + WS; one event per episode; reset clears everything incl. cooldown; offers expire on a new question; socket supersede; cross-origin blocked.
-- `tests/test_vision.py` — quality gates → `unknown` with a reason; calibration is time-based and restarts after a break; proxy behaviour (neutral low, frown high, smile/blink suppression, personal baseline); real MediaPipe on the portrait (pose, darkness gate).
-- `tests/test_secrets.py` — no `sk-…` key or `.env` in anything git would commit.
-- `frontend/src/lib/vision.test.js` — camera/socket controller with stubbed browser APIs: frames flow whichever of camera or server `hello` comes first (also after a vision error + reconnect); a camera toggled during a pending permission request never keeps capturing.
-- `frontend/e2e/*.spec.js` — the 60–90 s demo in a real browser (virtual camera shows a real face; the confusion rise comes from the **labelled** simulation, asserted to be labelled), refresh restore, two faces → ambiguous, no face → unknown, camera off mid-session, permission denied → chat still works.
+- `test_calibration.py` — calibration takes ~2.5 s; a biased resting face (raw anger > 0.9) reads neutral; a real smile / frown still shows; a small brow shift stays neutral; no evidence → no expression; a lowered head gets a lower weight; talking frames are skipped (8 s fallback); adaptation never absorbs a smile; sensitivity presets are ordered; restart / sensitivity; evidence and action words.
+- `test_emotion.py` — time-based smoothing (30 vs 5 fps agree), dominant switches only after hold + margin, close competitors don't flicker, unknown/gaps restart smoothing (never "neutral"), source switch, words-only description (no digits) naming the previous expression, stale state not described, reset.
+- `test_vision.py` — quality gates → `unknown` with a reason; the real expression model on the portrait (8 probs sum to 1, valence/arousal in range); real MediaPipe + model: one face → estimate, two faces → no estimate, dark → unknown, garbage → bad_frame.
+- `test_context.py` — persona (tsundere + expert, English, Fish cue rules, short spoken replies, a person on a video call who sees the learner through the webcam note, banned assistant phrases, a face is not a feeling), the webcam note wording (simulation labelled, "unchanged"), note layout (stable prefix, emotion note, reply rules, voice note), only text reaches the model, interrupted answers marked, history limit.
+- `test_voice.py` — cue parsing/stripping, `speakable` (cues kept, markdown/code/URLs/stray brackets removed, LaTeX → words), splitter (early first chunk, never inside a cue, cue carry-over, bursts), SilenceCap, fillers (cached, no repeats, mood), Fish protocol against a fake server (start/text/flush/stop, audio, error, silence trim), dial headers + warm pool, breaker.
+- `test_stt.py` / `test_vad.py` — realtime transcription session config, partial/final mapping per utterance, context-bias prompt updates; VAD segmentation (pre-roll, clicks ignored, comma pauses kept, strict barge-in bar, max length, reset), Silero on silence/noise.
+- `test_live.py` — the voice socket end to end: filler + answer voice on the **same turn** after a speculation mismatch (regression), speculation confirmed → one LLM call, barge-in stops voice and keeps the partial answer, "wait, stop" only stops, a paused sentence is joined, echo ignored without an LLM call, stop button, text-only mode, mic off, typed question spoken on the socket, REST interrupt, stop-command and join helpers.
+- `test_api.py` — health, SSE stream/commit, errors/timeouts/retry, missing key, supersede, simulated expression → note → prompt → stored context, sim off → unknown, real frames through the socket (calibration → neutral), recalibrate + sensitivity over the vision socket, socket close → unknown, reset, isolation, supersede, cross-origin HTTP + WebSockets, host guard, broken OpenCV never breaks chat.
+- `test_secrets.py` — no key patterns and no value of any secret in the local `.env` in anything git would commit; `.env` ignored.
+- `frontend/src/lib/*.test.js` — markdown XSS/remote images + cue rendering, cue helpers, emotion palette/orders (documented colours, validated stack order), audio frame parsing + gapless player (turn cut, stop, stopAll), voice controller protocol (captions incl. continued sentences, playback reporting, barge-in, mute, microphone list / choice / fallback), camera controller races + recalibrate / sensitivity (sent on every connect), formatting.
+- `frontend/e2e/*.spec.js` — demo scenario with the real models on a virtual camera (calibration → "tracking (calibrated to you)" → Neutral, Recalibrate, expression, face label, prompt note, cue chips, per-answer note, table view, labelled simulation, reset), consent remembered, refresh restore, duplicated tab, two faces / no face / camera off / camera + microphone denied, and **voice**: virtual microphone → hearing → spoken question → answer → speaking → Stop.
 
 ## Writing new tests
 
-- Test observable behaviour and failure paths, not implementation strings (spec §7).
-- Engine/session tests inject time (`Observation(t=...)`, `Session(..., clock=...)`); never `sleep` for engine timing.
-- API tests use `conftest.make_settings(...)` (short timings: hold 0.3 s, timeouts 0.4 s) and `FakeLLM(script=[...])` modes `ok|error|hang|stall|fail_mid`. Tests never read `.env` (`_isolate_env` fixture) — keep it that way so the real key is never used by CI.
-- Real-image tests use the `portrait_jpeg` / `model_path` fixtures (downloaded once into `backend/tests/.cache`, skipped offline).
-- A controlled signal is allowed only in tests or the labelled *Demo simulation mode* (spec §7.4).
+- Test observable behaviour and failure paths. Inject time in engine tests; never `sleep` for engine timing.
+- Use `conftest.make_settings(...)` (mock providers, short timeouts), `FakeLLM(script=[...])` modes `ok|error|hang|stall|fail_mid|slow`, `EnergyVad` + `speech_pcm()/silence_pcm()` for voice, `voice_app()` / `open_live()` in `test_live.py`. Tests never read `.env` (`_isolate_env`).
+- Fake keys in tests must not look like real ones (no `sk-…`) — the secret scan will (correctly) flag them.
+- Real-image/model tests use the `portrait_jpeg`, `model_path`, `emotion_model_path`, `vad_model_path` fixtures (downloaded once, skipped offline).
+- A controlled expression is allowed only in tests or the labelled *Demo simulation mode*.
 
 ## When something fails
 
-1. Read the assertion message; for e2e open `frontend/test-results/*/error-context.md` (page snapshot + call log).
-2. Reproduce with the smallest layer (a pytest `-k` filter, or `npx playwright test -g "<title>" --project face`).
-3. Fix the code, then rerun the whole layer and the layers above it. Record the result honestly — a skipped or not-run check is reported as such.
+1. Read the assertion; for e2e open `frontend/test-results/*/error-context.md`.
+2. Reproduce with the smallest layer (`pytest -k …`, `npx playwright test -g "<title>" --project voice`).
+3. Fix the code, rerun the layer and the layers above it. Report results honestly — skipped/not-run checks are reported as such.

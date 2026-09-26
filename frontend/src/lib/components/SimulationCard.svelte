@@ -1,5 +1,6 @@
 <script>
   import { app } from '$lib/app.svelte.js'
+  import { COLOR, LABEL, SIM_PRESETS } from '$lib/emotions.js'
   import { ChevronDown, FlaskConical } from '$lib/icons.js'
 
   let open = $state(false)
@@ -17,25 +18,30 @@
   </button>
   {#if open}
     <p class="warn-text">
-      A manual slider replaces the camera signal so the interface can be shown without a working camera.
-      It drives the <strong>same</strong> state engine, and everything it produces is labelled <strong>SIMULATED</strong>.
-      It is never live recognition.
+      Pick an expression by hand instead of the camera — for showing the interface without a working camera.
+      It drives the <strong>same</strong> emotion engine and prompt note, and everything it produces is labelled
+      <strong>SIMULATED</strong>. It is never live recognition.
     </p>
     <label class="toggle">
       <span class="switch">
         <input type="checkbox" checked={on} onchange={(e) => app.setSimulation(e.currentTarget.checked)} data-testid="sim-toggle" />
         <span class="track"></span><span class="knob"></span>
       </span>
-      Use simulated signal
+      Use a simulated expression
     </label>
     {#if on}
-      <div class="slider">
-        <input type="range" min="0" max="1" step="0.01" bind:value={app.sim.value} aria-label="Simulated confusion proxy" data-testid="sim-slider" />
-        <span class="num val">{Number(app.sim.value).toFixed(2)}</span>
+      <div class="grid" role="radiogroup" aria-label="Simulated expression">
+        {#each SIM_PRESETS as k (k)}
+          <button class="btn sm pick" class:sel={app.sim.emotion === k} role="radio" aria-checked={app.sim.emotion === k}
+                  onclick={() => app.setSimEmotion(k)} data-testid="sim-{k}">
+            <i style:background={COLOR[k]}></i>{LABEL[k]}
+          </button>
+        {/each}
       </div>
-      <div class="presets">
-        <button class="btn sm" onclick={() => (app.sim.value = 0.1)} data-testid="sim-low">Low 0.10</button>
-        <button class="btn sm" onclick={() => (app.sim.value = 0.9)} data-testid="sim-high">High 0.90</button>
+      <div class="slider">
+        <span class="faint">intensity</span>
+        <input type="range" min="0.2" max="1" step="0.05" bind:value={app.sim.intensity} aria-label="Simulated intensity" data-testid="sim-intensity" />
+        <span class="num val">{Math.round(Number(app.sim.intensity) * 100)}%</span>
       </div>
     {/if}
   {/if}
@@ -51,7 +57,10 @@
   .warn-text { margin: 0 0 10px; font-size: 12px; line-height: 1.5; color: #f2d7a8; }
   .warn-text strong { color: #ffe7c2; }
   .toggle { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-2); cursor: pointer; margin-bottom: 10px; }
-  .slider { display: flex; align-items: center; gap: 10px; }
-  .val { width: 34px; text-align: right; font-size: 12.5px; color: var(--text); }
-  .presets { display: flex; gap: 6px; margin: 8px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .pick { justify-content: flex-start; }
+  .pick i { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; }
+  .pick.sel { color: var(--text); border-color: var(--edge-2); box-shadow: 0 0 0 1px rgb(232 184 95 / .6), var(--rise-1); }
+  .slider { display: flex; align-items: center; gap: 10px; margin: 10px 0 12px; font-size: 12px; }
+  .val { width: 38px; text-align: right; font-size: 12.5px; color: var(--text); }
 </style>

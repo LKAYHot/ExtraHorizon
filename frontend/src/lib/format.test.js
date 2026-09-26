@@ -1,26 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currentOffer, isLoopbackHost, reasonText } from './format.js'
-
-const done = (id) => ({ id, role: 'assistant', status: 'done' })
-const ev = (id, answer_id, status = 'offered', kind = 'possible_confusion') => ({ id, answer_id, status, kind })
-
-describe('currentOffer', () => {
-  it('offers only for the latest finished answer with an offered event', () => {
-    const msgs = [{ id: 'u1', role: 'user' }, done('a1')]
-    expect(currentOffer(msgs, [ev('e1', 'a1')], false)?.event.id).toBe('e1')
-  })
-  it('does not offer before an event, for used/expired events or other answers', () => {
-    const msgs = [done('a1'), { id: 'u2', role: 'user' }, done('a2')]
-    expect(currentOffer(msgs, [], false)).toBeNull()
-    expect(currentOffer(msgs, [ev('e1', 'a1')], false)).toBeNull()
-    expect(currentOffer(msgs, [ev('e2', 'a2', 'used')], false)).toBeNull()
-    expect(currentOffer(msgs, [ev('e3', 'a2', 'offered', 'signal_decreased')], false)).toBeNull()
-  })
-  it('does not offer while an answer is streaming or after a failed answer', () => {
-    expect(currentOffer([done('a1')], [ev('e1', 'a1')], true)).toBeNull()
-    expect(currentOffer([{ id: 'a1', role: 'assistant', status: 'error' }], [ev('e1', 'a1')], false)).toBeNull()
-  })
-})
+import { TALK_LABEL, isLoopbackHost, pct, reasonText, signed } from './format.js'
 
 describe('isLoopbackHost', () => {
   it('only treats loopback names as local', () => {
@@ -32,6 +11,21 @@ describe('isLoopbackHost', () => {
 describe('reasonText', () => {
   it('explains unknown states in plain words', () => {
     expect(reasonText('multiple_faces')).toMatch(/ambiguous/)
+    expect(reasonText('head_turned')).toMatch(/turned/)
     expect(reasonText(null)).toBe('No reading')
+    expect(reasonText('some_new_reason')).toBe('some new reason')
+  })
+})
+
+describe('number formatting', () => {
+  it('formats percentages and signed values, unknown as a dash', () => {
+    expect(pct(0.625)).toBe('63%')
+    expect(pct(null)).toBe('—')
+    expect(signed(0.4)).toBe('+0.40')
+    expect(signed(-0.25)).toBe('-0.25')
+    expect(signed(undefined)).toBe('—')
+  })
+  it('has a label for every conversational state', () => {
+    for (const s of ['idle', 'listening', 'hearing', 'thinking', 'speaking']) expect(TALK_LABEL[s]).toBeTruthy()
   })
 })

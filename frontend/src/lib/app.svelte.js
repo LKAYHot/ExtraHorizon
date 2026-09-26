@@ -1,22 +1,18 @@
 import * as api from './api.js'
-import { currentOffer, isLoopbackHost } from './format.js'
+import { probsArray } from './emotions.js'
+import { isLoopbackHost } from './format.js'
 import { claimSessionId, getSessionId, readPref, writePref } from './session.js'
 import { VisionController } from './vision.svelte.js'
+import { VoiceController } from './voice.svelte.js'
 
 const WINDOW_MS = 180_000
 const HEALTH_EVERY_MS = 4000
 let tmpCounter = 0
 const tmpId = (p) => `tmp_${p}_${++tmpCounter}`
 
-function findLast(arr, pred) {
-  for (let i = arr.length - 1; i >= 0; i--) if (pred(arr[i])) return arr[i]
-  return null
-}
-
 /**
- * All UI state. Everything the signal panel, the timeline and the "Why it adapted"
- * card show comes from the backend state engine (ticks, events, markers, chat meta) —
- * the browser never computes or invents a signal value.
+ * All UI state. Everything the emotion panel shows comes from the backend (ticks, notes,
+ * markers, chat meta) — the browser never computes or invents an emotion value.
  */
 class AppState {
   sessionId = getSessionId()
@@ -24,16 +20,15 @@ class AppState {
   health = $state.raw(null)
   backendUp = $state(null)
   subject = $state(readPref('subject', 'General'))
-  autoAdapt = $state(readPref('autoAdapt', false))
+  showCues = $state(readPref('showCues', true))
 
   messages = $state([])
-  busy = $state(false)
-  events = $state([])
-  engine = $state.raw(null)
+  busy = $state(false) // a typed answer is streaming over SSE
+  emotion = $state.raw(null) // latest smoothed estimate (public engine state)
+  context = $state.raw(null) // what the tutor would be told right now ({available, text, note, …})
   visionTick = $state.raw(null)
-  sim = $state({ enabled: false, value: 0.1 })
+  sim = $state({ enabled: false, emotion: 'happiness', intensity: 0.8 })
   toasts = $state([])
-  lastEventAt = $state(0)
   resetting = $state(false)
 
   // high-frequency data: plain arrays + a version counter (cheap to append at 12 Hz)
@@ -41,12 +36,23 @@ class AppState {
   timelineVersion = $state(0)
 
   vision = new VisionController(this)
+  voice = new VoiceController(this)
 
-  offer = $derived(currentOffer(this.messages, this.events, this.busy))
   // "local" wording anywhere in the UI requires BOTH a loopback page and the backend
   // confirming it sees us on loopback (same rule as the privacy card)
   local = $derived(typeof location !== 'undefined' && isLoopbackHost(location.hostname) && this.vision.clientIsLoopback === true)
-  latestConfusion = $derived(findLast(this.events, (e) => e.kind === 'possible_confusion'))
+  persona = $derived(this.health?.persona ?? this.voice.info?.persona ?? 'Rika')
+  /** Voice turn in flight (spoken question being answered), newest first. */
+  voiceTurnActive = $derived(this.messages.some((m) => m.role === 'assistant' && m.source === 'voice' && (m.status === 'pending' || m.status === 'streaming')))
+  /** idle | listening | hearing | thinking | speaking — the tutor's conversational state. */
+  talkState = $derived.by(() => {
+    const v = this.voice
+    if (v.playing && v.playingKind === 'answer') return 'speaking'
+    if (v.hearing) return 'hearing'
+    if (this.busy || this.voiceTurnActive || (v.playing && v.playingKind === 'filler')) return 'thinking'
+    if (v.mic === 'on') return 'listening'
+    return 'idle'
+  })
 
   #abort = null
   #healthTimer = null
@@ -63,6 +69,7 @@ class AppState {
       this.#pollHealth(true)
       this.#healthTimer = setInterval(() => this.#pollHealth(false), HEALTH_EVERY_MS)
       this.vision.start()
+      this.voice.start()
     })()
     return this.#ready
   }
@@ -75,6 +82,7 @@ class AppState {
   shutdown() {
     clearInterval(this.#healthTimer)
     this.vision.stop()
+    this.voice.stop()
     this.#started = false
   }
 
@@ -85,18 +93,18 @@ class AppState {
       if (this.messages.length || this.busy) return // never clobber a conversation already under way
       if (st.subject && st.messages.length) this.subject = st.subject
       this.messages = st.messages.map((m) => ({ ...m, key: m.id, status: 'done' }))
-      this.events = st.events
       this.timeline = { samples: st.timeline.samples, markers: st.timeline.markers }
+      this.emotion = st.emotion
       this.timelineVersion++
     } catch {
-      /* backend not up yet — health polling + the socket will catch up */
+      /* backend not up yet — health polling + the sockets will catch up */
     }
   }
 
   async #pollHealth(deep) {
     try {
       const h = await api.getHealth(deep)
-      if (this.bootId && h.boot_id !== this.bootId) this.#backendRestarted()
+      if (this.bootId && h.boot_id !== this.bootId) this.onBackendRestart()
       this.bootId = h.boot_id
       // keep the last known "reachable" (only deep checks measure it)
       if (!deep && this.health?.llm && h.llm.reachable == null) h.llm.reachable = this.health.llm.reachable
@@ -112,7 +120,7 @@ class AppState {
     return this.#pollHealth(true)
   }
 
-  #backendRestarted() {
+  onBackendRestart() {
     this.#clearLocal()
     this.toast('warn', 'The backend restarted — the session was cleared.')
   }
@@ -120,32 +128,35 @@ class AppState {
   #clearLocal() {
     this.#abort?.abort('reset')
     this.messages = []
-    this.events = []
-    this.engine = null
+    this.emotion = null
+    this.context = null
     this.timeline = { samples: [], markers: [] }
     this.timelineVersion++
+    this.voice.reset()
   }
 
   // ------------------------------------------------------------------ vision socket callbacks
   onHello(m) {
-    if (this.bootId && m.boot_id !== this.bootId) this.#backendRestarted()
+    if (this.bootId && m.boot_id !== this.bootId) this.onBackendRestart()
     this.bootId = m.boot_id
   }
 
   onSnapshot(m) {
-    this.events = m.events
     this.timeline = { samples: m.timeline.samples, markers: m.timeline.markers }
-    this.engine = m.engine
+    this.emotion = m.emotion
+    if (m.context) this.context = m.context
     this.timelineVersion++
   }
 
   onTick(m) {
+    // simulation ticks carry no vision section: keep the last analysed frame (no box flicker)
     if (m.vision) this.visionTick = m.vision
-    const e = m.engine
+    else if (m.seq != null) this.visionTick = null // an acknowledged frame that was not analysed
+    const e = m.emotion
     if (!e) return
-    this.engine = e
+    this.emotion = e
     const s = this.timeline.samples
-    s.push([m.t, e.raw, e.smoothed, e.status, e.source])
+    s.push([m.t, e.status, e.source, e.dominant, probsArray(e.probs), e.valence, e.arousal])
     const cutoff = m.t - WINDOW_MS
     let drop = 0
     while (drop < s.length && s[drop][0] < cutoff) drop++
@@ -153,14 +164,8 @@ class AppState {
     this.timelineVersion++
   }
 
-  onEvent(ev) {
-    const i = this.events.findIndex((x) => x.id === ev.id)
-    if (i === -1) {
-      this.events.push(ev)
-      if (ev.kind === 'possible_confusion') this.lastEventAt = Date.now()
-    } else {
-      this.events[i] = ev
-    }
+  onEmotionNote(ctx) {
+    this.context = ctx
   }
 
   onMarker(mk) {
@@ -173,30 +178,106 @@ class AppState {
   }
 
   onSocketClosed() {
-    this.engine = null // nothing is measured while disconnected — never show a frozen value
+    this.emotion = null // nothing is measured while disconnected — never show a frozen value
+    this.visionTick = null
   }
 
-  // ------------------------------------------------------------------ chat
+  onAssistantInterrupted(id) {
+    const m = this.messages.find((x) => x.id === id)
+    if (m) m.interrupted = true
+  }
+
+  /** The voice socket closed: its spoken turn in flight was cancelled by the server. */
+  onVoiceSocketLost() {
+    this.#flushNow()
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const m = this.messages[i]
+      if (m.role !== 'assistant' || m.source !== 'voice' || (m.status !== 'pending' && m.status !== 'streaming')) continue
+      if (m.text) {
+        m.status = 'done'
+        m.interrupted = true
+      } else {
+        m.status = 'error'
+        m.error = { code: 'connection_lost', message: 'The voice connection dropped — ask again.', retryable: false }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ voice turns (live socket)
+  #pendingText = new Map() // turn_no → buffered delta text (flushed once per frame)
+  #flushScheduled = false
+
+  onVoiceTurn({ event, turn_no: turn, data }) {
+    if (event === 'meta') {
+      const u = data.user_message
+      this.messages.push({ ...u, key: u.id, status: 'done' })
+      this.messages.push({
+        id: data.assistant_message_id, key: data.assistant_message_id, role: 'assistant', text: '', status: 'streaming',
+        source: 'voice', turn_no: turn, model: data.model, emotion_context: data.emotion_context, voice: data.voice,
+        created: Date.now(),
+      })
+      return
+    }
+    const msg = this.#assistantOfTurn(turn)
+    if (!msg) return
+    if (event === 'delta') {
+      this.#pendingText.set(turn, (this.#pendingText.get(turn) ?? '') + (data.text ?? ''))
+      this.#scheduleFlush()
+      return
+    }
+    this.#flushNow()
+    if (event === 'done' || event === 'interrupted') {
+      msg.status = 'done'
+      msg.model = data.model
+      msg.ttft_ms = data.ttft_ms
+      msg.elapsed_ms = data.elapsed_ms
+      msg.interrupted = !!data.interrupted
+    } else if (event === 'error') {
+      msg.status = 'error'
+      msg.error = data
+    } else if (event === 'dropped') {
+      // the learner went on talking: this turn never happened (the next one answers both)
+      const i = this.messages.indexOf(msg)
+      const start = i > 0 && this.messages[i - 1].role === 'user' ? i - 1 : i
+      this.messages.splice(start, i - start + 1)
+    }
+  }
+
+  #assistantOfTurn(turn) {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      const m = this.messages[i]
+      if (m.role === 'assistant' && m.turn_no === turn) return m
+    }
+    return null
+  }
+
+  #scheduleFlush() {
+    if (this.#flushScheduled) return
+    this.#flushScheduled = true
+    if (document.hidden) setTimeout(() => this.#flushNow(), 50)
+    else requestAnimationFrame(() => this.#flushNow())
+  }
+
+  #flushNow() {
+    this.#flushScheduled = false
+    for (const [turn, text] of this.#pendingText) {
+      const msg = this.#assistantOfTurn(turn)
+      if (msg && text) msg.text += text
+    }
+    this.#pendingText.clear()
+  }
+
+  // ------------------------------------------------------------------ typed chat (SSE)
   async send(text) {
     text = (text ?? '').trim()
     if (!text || this.busy) return false
+    this.voice.unlockAudio() // the click/Enter is the user gesture browsers require for audio
     await this.#whenReady()
     if (this.busy) return false
     const id = tmpId('u')
-    this.messages.push({ id, key: id, role: 'user', text, mode: 'normal', status: 'done', created: Date.now() })
-    this.#run({ mode: 'normal', message: text, subject: this.subject })
+    this.messages.push({ id, key: id, role: 'user', text, source: 'text', status: 'done', created: Date.now() })
+    this.#run({ message: text, subject: this.subject })
     return true
-  }
-
-  async explainDifferently(eventId) {
-    if (this.busy || !eventId) return
-    await this.#whenReady()
-    if (this.busy) return
-    const id = tmpId('u')
-    this.messages.push({
-      id, key: id, role: 'user', text: 'Explain differently', mode: 'explain_differently', status: 'done', created: Date.now(),
-    })
-    this.#run({ mode: 'explain_differently', event_id: eventId })
   }
 
   async retry(assistantId) {
@@ -205,23 +286,31 @@ class AppState {
     // only the latest answer can be retried: re-running an older one would reorder history
     if (i === -1 || i !== this.messages.length - 1) return
     const failed = this.messages[i]
+    if (!failed.request) return
     this.messages.splice(i, 1)
     this.#run(failed.request)
   }
 
+  /** Stop button / Esc: silence her and stop the answer in flight (typed or spoken). The
+   *  server keeps what was said so far (marked interrupted) and ends the stream cleanly. */
   stopAnswer() {
-    this.#abort?.abort('stopped')
+    const live = this.voice.socket === 'open'
+    this.voice.interrupt()
+    if (!live) api.interruptSession(this.sessionId).catch(() => {})
+    const ctrl = this.#abort
+    if (ctrl) setTimeout(() => this.#abort === ctrl && ctrl.abort('stopped'), 2500) // backend unreachable
   }
 
   async #run(request) {
     this.busy = true
     const aid = tmpId('a')
     this.messages.push({
-      id: aid, key: aid, role: 'assistant', text: '', status: 'pending', mode: request.mode,
-      adaptation: null, error: null, model: null, created: Date.now(), request,
+      id: aid, key: aid, role: 'assistant', text: '', status: 'pending', source: 'text',
+      error: null, model: null, created: Date.now(), request,
     })
     const msg = this.messages[this.messages.length - 1]
-    const userMsg = findLast(this.messages, (m) => m.role === 'user')
+    let userMsg = null
+    for (let i = this.messages.length - 2; i >= 0; i--) if (this.messages[i].role === 'user') { userMsg = this.messages[i]; break }
     const ctrl = new AbortController()
     this.#abort = ctrl
 
@@ -248,7 +337,9 @@ class AppState {
         onMeta: (meta) => {
           msg.id = meta.assistant_message_id
           msg.model = meta.model
-          msg.adaptation = meta.adaptation
+          msg.turn_no = meta.turn_no
+          msg.voice = meta.voice
+          msg.emotion_context = meta.emotion_context
           msg.status = 'streaming'
           if (userMsg && userMsg.id.startsWith('tmp_')) userMsg.id = meta.user_message.id
         },
@@ -264,8 +355,20 @@ class AppState {
           msg.elapsed_ms = d.elapsed_ms
           msg.finish_reason = d.finish_reason
         },
+        onInterrupted: (d) => {
+          flush()
+          msg.status = 'done'
+          msg.interrupted = true
+          msg.model = d.model
+          msg.ttft_ms = d.ttft_ms
+        },
         onError: (err) => {
           flush()
+          if (err.code === 'stopped' && msg.text) {
+            msg.status = 'done'
+            msg.interrupted = true
+            return
+          }
           msg.status = 'error'
           msg.error = err
         },
@@ -280,11 +383,11 @@ class AppState {
     if (this.resetting) return
     this.resetting = true
     this.#abort?.abort('reset')
+    this.voice.interrupt()
     try {
       await api.resetSession(this.sessionId)
       this.#clearLocal()
-      if (this.sim.enabled) this.sim.value = 0.1
-      this.toast('ok', 'Demo reset — chat, signal state, cooldown and timeline cleared.')
+      this.toast('ok', 'New session — chat, emotion history and timeline cleared.')
     } catch {
       this.#clearLocal()
       this.toast('error', 'Backend unreachable — cleared the local view only.')
@@ -298,15 +401,18 @@ class AppState {
     writePref('subject', s)
   }
 
-  setAutoAdapt(on) {
-    this.autoAdapt = on
-    writePref('autoAdapt', on)
+  setShowCues(on) {
+    this.showCues = on
+    writePref('showCues', on)
   }
 
   setSimulation(enabled) {
     this.sim.enabled = enabled
-    if (enabled) this.sim.value = 0.1
     this.vision.setSimulation(enabled)
+  }
+
+  setSimEmotion(emotion) {
+    this.sim.emotion = emotion
   }
 
   toast(kind, text) {

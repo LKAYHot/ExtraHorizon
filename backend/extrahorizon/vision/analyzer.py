@@ -1,4 +1,4 @@
-"""Frame analysis with MediaPipe Face Landmarker (runs locally, CPU/XNNPACK).
+"""Frame analysis: MediaPipe Face Landmarker + facial-emotion classifier (local CPU).
 
 One ``FaceAnalyzer`` per camera session (VIDEO mode keeps a face tracker and
 needs strictly increasing timestamps). ``analyze_jpeg`` is blocking and is always
@@ -48,6 +48,7 @@ class FaceAnalyzer:
         max_faces: int = 3,
         min_detection_confidence: float = 0.5,
         min_presence_confidence: float = 0.5,
+        emotion=None,
     ) -> None:
         # imported lazily so the API (and the chat) still starts if MediaPipe is broken
         import mediapipe as mp
@@ -67,6 +68,7 @@ class FaceAnalyzer:
         )
         self._landmarker = FaceLandmarker.create_from_options(options)
         self._last_ts = 0
+        self._emotion = emotion  # shared EmotionClassifier (or None → faces only)
 
     def close(self) -> None:
         try:
@@ -107,5 +109,16 @@ class FaceAnalyzer:
             roi = bgr[y0:y1, x0:x1]
             if roi.size:
                 out.brightness = float(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).mean())
+            if self._emotion is not None:
+                lms = res.face_landmarks[0]
+                pts = np.array([[p.x * fw, p.y * fh] for p in lms], dtype=np.float64)
+                crop = self._emotion.crop_aligned(bgr, pts) if len(pts) >= 455 else None
+                if crop is None:
+                    crop = self._emotion.crop(bgr, boxes[0])
+                if crop is not None:
+                    try:
+                        out.emotion = self._emotion.predict(crop)
+                    except Exception:  # noqa: BLE001 — never lose the face result over it
+                        out.emotion = None
         out.proc_ms = (time.perf_counter() - t0) * 1000
         return out

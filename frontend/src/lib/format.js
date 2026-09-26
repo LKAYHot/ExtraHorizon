@@ -6,8 +6,9 @@ export const REASONS = {
   too_dark: 'Too dark',
   overexposed: 'Too bright',
   bad_frame: 'Unreadable frame',
+  no_emotion_estimate: 'Expression could not be estimated',
+  calibrating: 'Learning your relaxed face',
   analysis_failed: 'Analysis failed on this frame',
-  calibrating: 'Calibrating neutral baseline',
   camera_off: 'Camera is off',
   camera_denied: 'Camera permission denied',
   camera_unavailable: 'Camera unavailable',
@@ -17,9 +18,12 @@ export const REASONS = {
   vision_disconnected: 'Vision connection closed',
   camera_initializing: 'Camera starting…',
   camera_vision_unavailable: 'Vision processing unavailable',
-  source_switched: 'Signal source switched',
+  source_switched: 'Source switched',
+  no_camera: 'No camera reading yet',
   no_value: 'No reading',
 }
+
+export const TALK_LABEL = { idle: 'Idle', listening: 'Listening…', hearing: 'Hearing you', thinking: 'Thinking…', speaking: 'Speaking' }
 
 export function reasonText(reason) {
   if (!reason) return 'No reading'
@@ -28,6 +32,16 @@ export function reasonText(reason) {
 
 export function fmt2(x) {
   return x == null || Number.isNaN(x) ? '—' : x.toFixed(2)
+}
+
+export function pct(x) {
+  return x == null || Number.isNaN(x) ? '—' : `${Math.round(x * 100)}%`
+}
+
+export function signed(x) {
+  if (x == null || Number.isNaN(x)) return '—'
+  const v = x.toFixed(2)
+  return x > 0 ? `+${v}` : v
 }
 
 export function clock(ms) {
@@ -45,22 +59,4 @@ export function ago(ms, now = Date.now()) {
 
 export function isLoopbackHost(hostname) {
   return hostname === 'localhost' || hostname === '::1' || hostname === '[::1]' || /^127\./.test(hostname) || hostname.endsWith('.localhost')
-}
-
-/** The offer shown under the latest answer — derived only from backend state. */
-export function currentOffer(messages, events, busy) {
-  if (busy) return null
-  let last = null
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant') {
-      last = messages[i]
-      break
-    }
-  }
-  if (!last || last.status !== 'done') return null
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]
-    if (e.kind === 'possible_confusion' && e.status === 'offered' && e.answer_id === last.id) return { event: e, answerId: last.id }
-  }
-  return null
 }

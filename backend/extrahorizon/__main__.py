@@ -21,10 +21,12 @@ def _utf8_console() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _utf8_console()
-    parser = argparse.ArgumentParser(prog="extrahorizon", description="ExtraHorizon adaptive tutor (backend + built UI)")
+    parser = argparse.ArgumentParser(prog="extrahorizon", description="ExtraHorizon emotion-aware voice tutor (backend + built UI)")
     parser.add_argument("--host", help="bind address (default 127.0.0.1 — keep it local for the privacy claim)")
     parser.add_argument("--port", type=int, help="port (default 8765)")
     parser.add_argument("--mock-llm", action="store_true", help="use the labelled offline mock tutor instead of OpenAI")
+    parser.add_argument("--mock-voice", action="store_true",
+                        help="offline voice doubles: a tone instead of Fish Audio, a scripted transcript instead of OpenAI STT")
     parser.add_argument("--no-vision", action="store_true", help="disable the local vision pipeline")
     parser.add_argument("--open", action="store_true", help="open the browser when ready")
     args = parser.parse_args(argv)
@@ -35,6 +37,9 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["EH_PORT"] = str(args.port)
     if args.mock_llm:
         os.environ["EH_LLM_PROVIDER"] = "mock"
+    if args.mock_voice:
+        os.environ["EH_TTS_PROVIDER"] = "mock"
+        os.environ["EH_STT_PROVIDER"] = "mock"
     if args.no_vision:
         os.environ["EH_VISION_ENABLED"] = "false"
 
@@ -67,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.open:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
+    class _NoHealthPolls(logging.Filter):  # every open tab polls /api/health every 4 s
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "/api/health" not in record.getMessage()
+
+    logging.getLogger("uvicorn.access").addFilter(_NoHealthPolls())
     uvicorn.run(
         create_app(settings),
         host=settings.host,

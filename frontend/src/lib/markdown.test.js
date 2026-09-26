@@ -19,3 +19,23 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('```python\nprint(1)\n```')).toContain('<pre><code class="language-python">')
   })
 })
+
+describe('voice cues in answers', () => {
+  it('renders delivery cues and sounds as stage directions, not as text or links', () => {
+    const html = renderMarkdown('[huffy and flustered] Hmph. [sighing] Fine, I will explain.')
+    expect(html).toContain('<span class="cue mood"')
+    expect(html).toContain('>huffy and flustered</span>')
+    expect(html).toContain('<span class="cue sound"')
+    expect(html).not.toContain('[huffy')
+  })
+  it('hides timing cues and trims stray spaces inside a cue', () => {
+    expect(renderMarkdown('One. [break] Two.')).toContain('cue timing')
+    expect(renderMarkdown('[ curious] Eh?')).toContain('>curious</span>')
+  })
+  it('keeps real links working and escapes HTML inside a cue', () => {
+    expect(renderMarkdown('[docs](https://example.com)')).toContain('href="https://example.com"')
+    const html = renderMarkdown('[<b>loud</b>] hi')
+    expect(html).not.toContain('<b>')
+    expect(html).toContain('&lt;b&gt;')
+  })
+})

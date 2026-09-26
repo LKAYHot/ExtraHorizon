@@ -1,4 +1,4 @@
-"""FastAPI application: HTTP API, SSE chat streaming, vision WebSocket, static UI."""
+"""FastAPI application: HTTP API, SSE chat, vision + voice WebSockets, static UI."""
 
 from __future__ import annotations
 
@@ -9,12 +9,11 @@ import logging
 import re
 import secrets
 import sys
-import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any
 
-import anyio
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -24,11 +23,17 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
-from .config import Settings, get_settings
-from .llm import BaseLLM, LLMError, StreamInfo, create_llm, map_openai_error
-from .sessions import ApiError, ChatCancelled, ChatPlan, Session, SessionStore
+from .config import SILERO_VAD, Settings, get_settings
+from .llm import BaseLLM, create_llm
+from .live_ws import LiveConnection
+from .sessions import ApiError, SessionStore
+from .turns import TurnRunner
+from .vision.model_fetch import ensure_asset
 from .vision.service import VisionService
 from .vision_ws import VisionConnection
+from .voice.fillers import FillerBank
+from .voice.fish import TtsEngine, create_tts
+from .voice.stt import create_stt
 
 log = logging.getLogger("extrahorizon")
 
@@ -39,9 +44,7 @@ _SESSION_ID_RE = re.compile(SESSION_ID_PATTERN)
 # ---------------------------------------------------------------------- schemas
 class ChatRequest(BaseModel):
     session_id: str = Field(pattern=SESSION_ID_PATTERN)
-    mode: Literal["normal", "explain_differently"] = "normal"
     message: str | None = Field(default=None, max_length=4000)
-    event_id: str | None = Field(default=None, max_length=40)
     subject: str | None = Field(default=None, max_length=40)
 
 
@@ -54,36 +57,34 @@ def sse(event: str, data: dict[str, Any]) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
 
-_END = object()
+@dataclass
+class Services:
+    """Process-wide providers shared by all sessions (swappable in tests)."""
 
+    settings: Settings
+    llm: BaseLLM
+    tts: TtsEngine
+    fillers: FillerBank
+    vision: VisionService
+    stt_factory: Any = None
+    vad_factory: Any = None
+    vad_ok: bool = False
+    vad_reason: str | None = "starting"
 
-async def _next_or_cancel(agen: AsyncIterator[str], timeout: float, cancel: asyncio.Event) -> tuple[str, Any]:
-    """Next chunk, or 'end' / 'cancel' / 'timeout' — whichever comes first."""
-    if cancel.is_set():
-        return "cancel", None
-    nxt = asyncio.ensure_future(agen.__anext__())
-    stop = asyncio.ensure_future(cancel.wait())
-    try:
-        done, _ = await asyncio.wait({nxt, stop}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-    except BaseException:
-        nxt.cancel()
-        stop.cancel()
-        raise
-    stop.cancel()
-    if nxt in done:
-        try:
-            return "chunk", nxt.result()
-        except StopAsyncIteration:
-            return "end", None
-    nxt.cancel()
-    with contextlib.suppress(BaseException):
-        await nxt  # let the provider stream unwind (closes the HTTP response)
-    return ("cancel", None) if stop in done else ("timeout", None)
+    def make_stt(self):
+        return (self.stt_factory or create_stt)(self.settings)
+
+    def make_segmenter(self):
+        from .voice.vad import SileroVad, VadSegmenter
+
+        if self.vad_factory is not None:
+            return self.vad_factory()
+        return VadSegmenter(SileroVad(self.settings.vad_model_path), self.settings)
 
 
 class OriginGuard:
     """Rejects cross-site requests: a random web page must not be able to drive the
-    local tutor (spend the API key) or open the camera socket."""
+    local tutor (spend the API keys), open the camera socket or the microphone socket."""
 
     def __init__(self, app: ASGIApp, allowed: set[str]) -> None:
         self.app = app
@@ -147,10 +148,15 @@ def create_app(
     *,
     llm: BaseLLM | None = None,
     vision: VisionService | None = None,
+    tts: TtsEngine | None = None,
+    stt_factory: Any = None,
+    vad_factory: Any = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     llm = llm or create_llm(settings)
     vision = vision or VisionService(settings)
+    tts = tts if tts is not None else create_tts(settings)
+    services = Services(settings, llm, tts, FillerBank(tts, settings), vision, stt_factory, vad_factory)
     store = SessionStore(settings)
     boot_id = secrets.token_hex(8)
 
@@ -158,57 +164,63 @@ def create_app(
     async def lifespan(app: FastAPI):
         _quiet_windows_disconnect_noise()
         await vision.startup()
+        if vad_factory is not None:
+            services.vad_ok, services.vad_reason = True, None
+        else:
+            loop = asyncio.get_running_loop()
+            services.vad_ok, services.vad_reason = await loop.run_in_executor(
+                None, lambda: ensure_asset(SILERO_VAD, settings.vad_model_path, allow_download=settings.vision_auto_download))
+
+        async def voice_warmup() -> None:
+            with contextlib.suppress(Exception):
+                await tts.warmup()  # a connected Fish socket is waiting for the first reply
+            services.fillers.start()  # synthesize/cache the filler clips in the background
+
         async def sweeper() -> None:
             while True:
                 await asyncio.sleep(60)
                 store.sweep()
-        task = asyncio.create_task(sweeper())
+
+        tasks = [asyncio.create_task(sweeper()), asyncio.create_task(voice_warmup())]
         log.info(
-            "ExtraHorizon %s ready — LLM: %s/%s (%s), vision: %s",
-            __version__,
-            llm.provider,
-            llm.model,
-            "configured" if llm.configured else "NOT CONFIGURED",
+            "ExtraHorizon %s ready — LLM %s/%s (%s) · voice %s/%s (%s) · STT %s · vision %s",
+            __version__, llm.provider, llm.model, "ok" if llm.configured else "NOT CONFIGURED",
+            getattr(tts, "provider", "none"), settings.fish_model, "ok" if tts.configured else "off",
+            settings.stt_model if settings.stt_configured else "off",
             "ready" if vision.available else f"unavailable ({vision.reason})",
         )
         try:
             yield
         finally:
-            task.cancel()
-            with contextlib.suppress(BaseException):
-                await task
+            for t in tasks:
+                t.cancel()
+            services.fillers.stop()
+            for t in tasks:
+                with contextlib.suppress(BaseException):
+                    await t
             await llm.aclose()
+            await tts.aclose()
             vision.shutdown()
 
     app = FastAPI(
-        title="ExtraHorizon",
-        version=__version__,
-        lifespan=lifespan,
-        docs_url="/api/docs",
-        redoc_url=None,
-        swagger_ui_oauth2_redirect_url=None,
-        openapi_url="/api/openapi.json",
+        title="ExtraHorizon", version=__version__, lifespan=lifespan, docs_url="/api/docs",
+        redoc_url=None, swagger_ui_oauth2_redirect_url=None, openapi_url="/api/openapi.json",
     )
     app.state.settings = settings
-    app.state.llm = llm
-    app.state.vision = vision
+    app.state.services = services
     app.state.store = store
     app.state.boot_id = boot_id
 
     port = settings.port
-    dev_origins = {
-        f"http://{h}:{p}" for h in ("127.0.0.1", "localhost", "[::1]") for p in (port, 5173, 4173)
-    }
+    dev_origins = {f"http://{h}:{p}" for h in ("127.0.0.1", "localhost", "[::1]") for p in (port, 5173, 4173)}
     allowed_origins = dev_origins | set(settings.allowed_origins)
     wildcard_bind = settings.host in ("0.0.0.0", "::")
     allowed_hosts = ["127.0.0.1", "localhost", "::1", "[::1]", "testserver", *settings.allowed_hosts]
     if not wildcard_bind:
         allowed_hosts.append(settings.host)
     elif not settings.allowed_hosts:
-        log.warning(
-            "bound to %s but EH_ALLOWED_HOSTS is empty: requests from other machines will be rejected "
-            "(set EH_ALLOWED_HOSTS / EH_ALLOWED_ORIGINS explicitly; '*' is never used)", settings.host
-        )
+        log.warning("bound to %s but EH_ALLOWED_HOSTS is empty: requests from other machines will be rejected "
+                    "(set EH_ALLOWED_HOSTS / EH_ALLOWED_ORIGINS explicitly; '*' is never used)", settings.host)
     app.add_middleware(CORSMiddleware, allow_origins=sorted(allowed_origins), allow_methods=["*"], allow_headers=["*"])
     app.add_middleware(OriginGuard, allowed=allowed_origins)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
@@ -227,9 +239,14 @@ def create_app(
             "status": "ok",
             "boot_id": boot_id,
             "version": __version__,
+            "persona": settings.persona_name,
             "llm": llm_status,
             "vision": vision.status(),
-            "engine": settings.public_engine_config(),
+            "emotion": settings.public_emotion_config(),
+            "tts": tts.status(),
+            "stt": {"provider": settings.stt_provider, "model": settings.stt_model,
+                    "configured": settings.stt_configured, "vad": services.vad_ok, "vad_reason": services.vad_reason},
+            "fillers": services.fillers.state,
             "sessions": len(store),
         }
 
@@ -237,6 +254,17 @@ def create_app(
     async def reset_session(req: ResetRequest) -> dict[str, Any]:
         epoch = store.get_or_create(req.session_id).reset()
         return {"ok": True, "epoch": epoch, "boot_id": boot_id}
+
+    @app.post("/api/session/interrupt")
+    async def interrupt_session(req: ResetRequest) -> dict[str, Any]:
+        """Stop button without the voice socket: stop the answer in flight (kept, marked
+        interrupted) and the voice."""
+        session = store.get(req.session_id)
+        stopped = False
+        if session is not None:
+            live = session.live_conn
+            stopped = live.interrupt("button") if live is not None else session.interrupt("interrupted")
+        return {"ok": True, "stopped": stopped}
 
     @app.get("/api/session/{session_id}/state")
     async def session_state(session_id: str) -> dict[str, Any]:
@@ -247,15 +275,20 @@ def create_app(
     @app.post("/api/chat")
     async def chat(req: ChatRequest) -> StreamingResponse:
         session = store.get_or_create(req.session_id)
-        plan = session.plan_chat(mode=req.mode, message=req.message, event_id=req.event_id, subject=req.subject)
-        log.info(
-            "chat %s session=%s… mode=%s chars=%d", plan.request_id, session.id[:8], plan.mode, len(plan.user_msg["text"])
-        )
-        return StreamingResponse(
-            _chat_stream(session, plan, llm, settings),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        plan = session.plan_chat(message=req.message, subject=req.subject, source="text")
+        log.info("chat %s session=%s… chars=%d", plan.request_id, session.id[:8], len(plan.user_msg["text"]))
+        # typed questions are answered in text over SSE and, if the voice socket is open,
+        # spoken through it as well
+        runner = TurnRunner(session, plan, llm, settings, tts, session.live_conn)
+
+        async def stream() -> AsyncIterator[bytes]:
+            async for name, data in runner.events():
+                if name == "discarded":
+                    return
+                yield sse(name, data)
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.websocket("/api/vision")
     async def vision_socket(ws: WebSocket) -> None:
@@ -264,8 +297,16 @@ def create_app(
             await ws.close(code=4002)
             return
         await ws.accept()
-        session = store.get_or_create(sid)
-        await VisionConnection(ws, session, vision, settings, boot_id).run()
+        await VisionConnection(ws, store.get_or_create(sid), vision, settings, boot_id).run()
+
+    @app.websocket("/api/live")
+    async def live_socket(ws: WebSocket) -> None:
+        sid = ws.query_params.get("session_id", "")
+        if not _SESSION_ID_RE.match(sid):
+            await ws.close(code=4002)
+            return
+        await ws.accept()
+        await LiveConnection(ws, store.get_or_create(sid), services, settings, boot_id).run()
 
     # ------------------------------------------------------------------ UI
     static_dir = settings.static_dir
@@ -285,85 +326,3 @@ def create_app(
             )
 
     return app
-
-
-async def _chat_stream(session: Session, plan: ChatPlan, llm: BaseLLM, settings: Settings) -> AsyncIterator[bytes]:
-    t0 = time.monotonic()
-    committed = False
-    yield sse("meta", plan.meta(llm.model))
-    if not llm.configured:
-        err = LLMError(
-            "llm_not_configured",
-            "OPENAI_API_KEY is not set on the server. Put it in .env and restart the backend.",
-            False,
-        )
-        llm.note_error(err)
-        session.abort_chat(plan)
-        yield sse("error", err.public())
-        return
-
-    agen = llm.stream(plan.llm_messages)
-    parts: list[str] = []
-    ttft: float | None = None
-    info = StreamInfo(model=llm.model)
-    reported = False  # an error event was sent to the client
-    try:
-        while True:
-            budget = t0 + settings.llm_total_timeout_s - time.monotonic()
-            step = settings.llm_first_token_timeout_s if ttft is None else settings.llm_idle_timeout_s
-            timeout = min(step, budget)
-            if timeout <= 0:
-                raise LLMError("llm_timeout", "The answer took too long. Retry.", True)
-            kind, chunk = await _next_or_cancel(agen, timeout, plan.cancel)
-            if kind == "end":
-                break
-            if kind == "cancel":
-                raise ChatCancelled(plan.cancel_reason[-1] if plan.cancel_reason else "superseded")
-            if kind == "timeout":
-                raise LLMError(
-                    "llm_timeout",
-                    "The model did not start answering in time. Retry." if ttft is None else "The answer stalled. Retry.",
-                    True,
-                )
-            if isinstance(chunk, StreamInfo):
-                info = chunk
-                continue
-            if chunk:
-                if ttft is None:
-                    ttft = time.monotonic() - t0
-                parts.append(chunk)
-                yield sse("delta", {"text": chunk})
-        text = "".join(parts).strip()
-        if not text:
-            raise LLMError("llm_empty", "The model returned an empty answer. Retry.", True)
-        done = session.commit_chat(
-            plan,
-            text,
-            model=info.model,
-            ttft_ms=None if ttft is None else int(ttft * 1000),
-            elapsed_ms=int((time.monotonic() - t0) * 1000),
-            finish_reason=info.finish_reason,
-        )
-        committed = True
-        llm.note_ok()
-        log.info("chat %s done ttft=%sms elapsed=%sms", plan.request_id, done["ttft_ms"], done["elapsed_ms"])
-        yield sse("done", done)
-    except ChatCancelled as c:
-        msg = "The session was reset." if c.code == "reset" else "A newer request replaced this one."
-        reported = True
-        log.info("chat %s cancelled: %s", plan.request_id, c.code)
-        yield sse("error", {"code": c.code, "message": msg, "retryable": c.code != "reset"})
-    except Exception as e:  # noqa: BLE001 — every failure ends the stream with a clear error
-        err = e if isinstance(e, LLMError) else map_openai_error(e)
-        llm.note_error(err)
-        reported = True
-        log.warning("chat %s failed: %s", plan.request_id, err.code)
-        yield sse("error", err.public())
-    finally:
-        if not committed:
-            session.abort_chat(plan)
-            if not reported:
-                log.info("chat %s stopped by the client (disconnect) — upstream stream closed, nothing committed", plan.request_id)
-        with anyio.CancelScope(shield=True):
-            with contextlib.suppress(BaseException):
-                await agen.aclose()  # type: ignore[attr-defined]

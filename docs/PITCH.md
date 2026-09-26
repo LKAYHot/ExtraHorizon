@@ -2,52 +2,58 @@
 
 ## 30-second pitch
 
-Online learners get stuck silently. A human tutor sees the frown and says "let me put it
-another way"; a chatbot just keeps talking. **ExtraHorizon** is an AI tutor that watches for
-that moment — *on your own computer*. A local vision model turns facial-expression cues into
-a smoothed **confusion estimate**; when it stays high for about two seconds after an answer,
-the tutor offers to explain differently — with an analogy, one concrete example and short
-steps — and shows exactly *why* it adapted. Your video never goes to the cloud; the language
-model only receives a one-line note that the last explanation may not have landed. (The MediaPipe library does
-report anonymous usage metrics to Google — never images — and we say so on screen.)
+Chatbots make you type, wait, and read a wall of text. A good tutor *talks* with you — answers
+right away, notices when you look lost, and stops when you jump in. **ExtraHorizon** is that
+tutor: **Rika**, a tsundere anime girl with an expert's rigour. You just talk; she answers in an
+expressive voice within about two seconds, covers her thinking time with a natural "Hmm…", stops
+the instant you talk over her, and waits when you pause mid-sentence. A model running **on your own
+computer** first learns *your* relaxed face in three seconds, then reads your facial expression relative
+to it — happy, surprised, anxious, neutral… — so a resting face or a lowered head isn't "angry". She sees
+you like on a video call and adapts her tone and pacing. Your video never leaves the laptop; the language
+model only gets a few words like *"the learner looks mostly anxious; frowning"*.
 
 ## Demo (60–90 s)
 
 | t | Do | Say |
 |---|---|---|
-| 0:00 | App open, camera **Active** (consent card clicked once before the show — the browser remembers it), face box, signal ≈ 0.1 | "The camera is analysed right here by a local model — this number is an *estimate*, not a mind-reader." |
-| 0:10 | Type **Explain recursion to me.** | "Normal tutor answer, streaming from the LLM." |
-| 0:25 | Frown for ~2–3 s while "reading" | "Watch the meter: it has to stay above the line for two seconds — one frown frame does nothing." |
-| 0:30 | **Possible confusion detected** + button appears | "That's an event from the state engine, with a cooldown so it never spams." |
-| 0:35 | Click **Explain differently** | "It re-explains with an analogy, an example and three short steps." |
-| 0:50 | Open **Why it adapted** | "Here's the real signal value, the rule, the strategy, and the exact note sent to the model — no numbers, no images." |
-| 1:05 | Relax; *After: … (observed)* appears | "It only claims the confusion went down because it actually measured that." |
-| 1:15 | **Reset demo** | "Clean slate for the next person." |
+| 0:00 | App open, camera **Active** (consent given before the show), face box labelled *Neutral* (calibrated before the show; **Recalibrate** if the light changed), Expression panel live | "The camera is analysed right here. It first learned *my* relaxed face, so it reads changes from it — eight expressions, valence and energy. It's an *estimate* of how a face looks, not a mind-reader." |
+| 0:08 | Mic on (green). **"Can you see me?"** | She: "Yeah, I can see you — you look pretty relaxed." |
+| 0:12 | **"Explain recursion to me."** | "No typing — I just talk." |
+| 0:13 | Filler "Hmph." → her answer, in character, cue chips in the chat | "Filler the moment I stop, answer about two seconds later — and look at the stage directions: that's how the voice model performs her." |
+| 0:25 | Talk over her: **"Wait, stop."** | "She stops instantly — and 'wait, stop' alone doesn't trigger a new answer." |
+| 0:30 | **"Can you give me… (pause) …a simpler example?"** | "I paused mid-sentence — it waited and joined both parts." |
+| 0:45 | Frown clearly / smile; point at the panel and **What Rika is told** | "This exact sentence is all the model gets about my face — no numbers, no images. A tiny brow twitch doesn't count; a real frown does, and she slows down." |
+| 1:00 | Open an answer's **expression sent** chip | "Every answer shows what went into its prompt." |
+| 1:10 | **New session** | "Clean slate for the next person." |
 
-If the camera misbehaves: say so, open **Demo simulation mode** (it is labelled SIMULATED
-everywhere) and show the same engine → context → answer chain. Never present simulation as
-recognition.
+If the camera misbehaves: say so, open **Demo simulation mode** (labelled SIMULATED / NOT LIVE everywhere) and pick
+an expression — the same engine → note → answer chain. Never present simulation as recognition. If the Wi-Fi dies:
+`start.ps1 -MockLLM -MockVoice` (labelled offline doubles).
 
 ## Honest claims (identical in UI, README and pitch)
 
-* Video frames stay on this computer: downsized in the browser, sent over localhost to the
-  Python process, analysed in memory, discarded. Not stored. Not sent to OpenAI.
-* OpenAI receives the chat text, earlier answers of the session, and — only after the click —
-  a short note that possible confusion was observed.
-* Google's MediaPipe library sends Google anonymous usage metrics (performance/utilisation, e.g.
-  frame counts and latency) while the camera is on; per Google's privacy notice it never sends the
-  images. The camera starts only after an explicit click on a card that says so.
-* The signal is a heuristic *confusion proxy* from expression cues (brow lowering, lid
-  tightening, lip press; smiling suppresses it). It can be wrong; it only ever *offers* help.
+* Video frames stay on this computer: downsized in the browser, sent over localhost to the Python process,
+  analysed in memory (MediaPipe + an on-device expression model), discarded. Not stored. Not sent anywhere.
+* Microphone: speech is detected locally; only the parts where you speak go to OpenAI for transcription.
+* OpenAI (chat) receives your messages, her earlier answers, and — only when one face is clearly in view and
+  calibrated — a short words-only description of your *apparent* expression and visible facial actions (no numbers,
+  no images). She treats it as what she sees on the call, mentions it rarely, and believes you if you say she read
+  you wrong; the app labels every reading as an estimate.
+* Fish Audio receives the text of her answers to speak them.
+* Google's MediaPipe library sends Google anonymous usage metrics while the camera is on; per Google never images.
+* Facial-expression estimates are imperfect and biased; calibration removes one person's resting-face bias, not
+  every error. An expression is not a feeling.
 
-## Final rehearsal plan (on the demo laptop, ~20 min)
+## Final rehearsal plan (on the demo laptop, ~25 min)
 
-1. `.\scripts\setup.ps1` (if the repo was freshly cloned) → `.\scripts\start.ps1 -Open`.
-2. `/api/health?deep=1` → LLM reachable, vision available.
-3. Run `backend/scripts/vision_probe.py --seconds 90` with the presenter in the venue light:
-   neutral ≤ 0.25, frown > 0.65 within 1 s, smile low, look-away → unknown. Adjust `.env`
-   (see `docs/CONFUSION_PROXY.md`) if needed, restart.
-4. Walk through the manual matrix rows still marked *not tested* in `docs/TEST_MATRIX.md`
-   (live frown, unplug camera mid-session) and update them to pass/fail.
-5. Rehearse the script above 3× with a timer; **Reset demo** between runs.
-6. Prepare the fallback: know where the simulation card is; have `-MockLLM` ready if Wi-Fi dies.
+1. `.\scripts\setup.ps1` (fresh clone) → keys in `.env` → `.\scripts\start.ps1 -Open`.
+2. `/api/health?deep=1` → LLM reachable, voice `ok`, speech recognition + VAD configured, fillers `ready`, vision available.
+3. `cd backend; uv run python scripts/demo_check.py --runs 3` → PASS (real providers, simulated expression).
+4. With the presenter: `scripts/vision_probe.py --seconds 60` in the venue light — relaxed for the first 3 s
+   (calibration), then neutral / small brow movements / lowered head (must stay neutral) / clear smile / clear frown
+   / look-away → unknown; pick Calm / Balanced / Expressive or adjust `.env` (docs/EMOTIONS.md).
+5. Voice in the venue: choose the right microphone in the app (not the webcam's); headphones or moderate speaker
+   volume; test barge-in and a mid-sentence pause; if she
+   interrupts herself, raise `EH_BARGE_IN_THRESHOLD`; if she cuts you off, raise `EH_VAD_END_SILENCE_MS`.
+6. Walk through the manual rows still marked *not tested* in docs/TEST_MATRIX.md and update them.
+7. Rehearse the script 3× with a timer; **New session** between runs.

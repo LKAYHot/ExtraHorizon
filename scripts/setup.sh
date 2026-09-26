@@ -9,13 +9,13 @@ need npm "comes with Node.js"
 
 echo "== backend: Python deps (uv sync)"
 (cd "$root/backend" && uv sync)
-echo "== backend: MediaPipe Face Landmarker model"
-(cd "$root/backend" && uv run python -m extrahorizon.vision.model_fetch) || echo "Model download failed — vision will be unavailable, chat still works."
+echo "== backend: local models (MediaPipe face, EmotiEffLib expression, Silero VAD)"
+(cd "$root/backend" && uv run python -m extrahorizon.vision.model_fetch) || echo "Model download failed — vision/voice detection may be unavailable, chat still works. Re-run when online."
 echo "== frontend: npm install + build"
 (cd "$root/frontend" && npm install --no-audit --no-fund && npm run build)
 if [ ! -f "$root/.env" ]; then
   cp "$root/.env.example" "$root/.env"
-  echo "Created .env — set OPENAI_API_KEY in it (it stays local; .env is git-ignored)."
+  echo "Created .env — set OPENAI_API_KEY and FISH_API_KEY in it (they stay local; .env is git-ignored)."
 fi
 [ -d "$root/.git" ] && git -C "$root" config core.hooksPath .githooks
 echo; echo "Done. Start the demo with:  ./scripts/start.sh"

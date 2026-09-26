@@ -6,7 +6,9 @@
   const pageLocal = typeof location !== 'undefined' && isLoopbackHost(location.hostname)
   // the claim is shown only when BOTH sides confirm a loopback path (page host + backend's view of us)
   const local = $derived(pageLocal && app.vision.clientIsLoopback === true)
-  const provider = $derived(app.health?.llm?.provider === 'mock' ? 'nobody (offline mock LLM)' : 'OpenAI')
+  const llm = $derived(app.health?.llm?.provider === 'mock' ? 'nobody (offline mock LLM)' : 'OpenAI')
+  const tts = $derived(app.health?.tts?.provider === 'mock' ? 'nobody (offline mock voice)' : 'Fish Audio')
+  const stt = $derived(app.health?.stt?.provider === 'mock' ? 'nobody (offline mock transcription)' : 'OpenAI')
 </script>
 
 <section class="card privacy" class:remote={!local} data-testid="privacy-card">
@@ -15,13 +17,15 @@
   </div>
   <ul>
     {#if local}
-      <li><strong>Camera video stays on this computer.</strong> Frames are downsized in the browser and sent over a localhost WebSocket to the ExtraHorizon Python process, analysed in memory and discarded — never saved.</li>
+      <li><strong>Camera video stays on this computer.</strong> Frames are downsized in the browser, sent over a localhost WebSocket to the ExtraHorizon Python process, analysed in memory (MediaPipe face landmarks + an on-device expression model) and discarded — never saved.</li>
     {:else}
       <li class="warn"><strong>The vision backend is not on this device</strong> ({location.host}). Camera frames travel over the network to it — the "video never leaves this device" claim does not apply here.</li>
     {/if}
-    <li><strong>Sent to {provider}:</strong> your chat messages, the tutor's earlier answers in this session and — only after you click <em>Explain differently</em> — a short note asking for another explanation style. No images, face data or signal numbers.</li>
+    <li><strong>Microphone:</strong> audio goes to the ExtraHorizon backend, which detects speech locally; only the parts where you speak are sent to {stt} for transcription. Nothing is recorded.</li>
+    <li><strong>Sent to {llm}:</strong> your messages (typed or transcribed), her earlier answers and a short words-only description of your apparent expression (e.g. “looks relaxed”, “frowning”). No images, landmarks or numbers.</li>
+    <li><strong>Sent to {tts}:</strong> the text of her answers, to speak them in her voice.</li>
     <li><strong>Sent to Google by the MediaPipe library:</strong> anonymous usage metrics (e.g. frame counts, latency, OS/Python version) while the camera is on — per <a href="https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice" target="_blank" rel="noopener noreferrer">Google's notice</a>, never the images or video.</li>
-    <li><strong>Not stored:</strong> sessions live in memory; <em>Reset demo</em> or closing the backend deletes them.</li>
+    <li><strong>Not stored:</strong> sessions live in memory; <em>New session</em> or closing the backend deletes them.</li>
   </ul>
 </section>
 

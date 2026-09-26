@@ -20,7 +20,6 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-from .context import ADAPTATION_MARKER
 
 log = logging.getLogger("extrahorizon.llm")
 
@@ -234,41 +233,23 @@ class OpenAIChat(BaseLLM):
 
 # ---------------------------------------------------------------------- offline mock
 
-_MOCK_NOTE = "_Offline mock tutor — scripted answer, no LLM was called._\n\n"
-
 _MOCK_RECURSION = (
-    "**Recursion** is when a function solves a problem by calling *itself* on a smaller version "
-    "of the same problem.\n\nEvery recursive function needs two parts:\n\n"
-    "1. **Base case** — when to stop.\n2. **Recursive case** — shrink the problem and call again.\n\n"
-    "```python\ndef factorial(n):\n    if n == 0:        # base case\n        return 1\n"
-    "    return n * factorial(n - 1)  # recursive case\n```\n\n"
-    "`factorial(3)` → `3 * factorial(2)` → `3 * 2 * factorial(1)` → `3 * 2 * 1 * 1` = **6**."
+    "[huffy and flustered] Hmph. It's not like I wanted to explain this to you or anything. "
+    "[smug, teasing] Recursion is when a function solves a problem by calling itself on a smaller piece of it. "
+    "[confident] Every recursive function needs a base case that stops it, and a step that shrinks the problem. "
+    "[soft, a little embarrassed] Like counting down from three: say three, then count down from two, until you hit zero. "
+    "[chuckling] Even you can follow that, right?"
 )
-
-_MOCK_ADAPTED = {
-    "analogy": (
-        "Think of **Russian nesting dolls**. To reach the smallest doll you open one doll, then do the "
-        "*exact same thing* to the doll inside — until a doll doesn't open. That last doll is the stop.\n\n"
-        "**Example:** counting down from 3 — say 3, then *count down from 2*; say 2, then *count down from 1*; "
-        "say 1, then stop at 0.\n\n1. Do one small piece of work.\n2. Hand the smaller rest to the same process.\n"
-        "3. Stop at the simplest case."
-    ),
-    "trace": (
-        "Let's trace `sum_to(3)`, where `sum_to(n) = n + sum_to(n - 1)` and `sum_to(0) = 0`:\n\n"
-        "| call | waits for | returns |\n|---|---|---|\n| sum_to(3) | 3 + sum_to(2) | 6 |\n"
-        "| sum_to(2) | 2 + sum_to(1) | 3 |\n| sum_to(1) | 1 + sum_to(0) | 1 |\n| sum_to(0) | — | 0 |\n\n"
-        "**Core idea:** each call waits for a smaller call, and answers flow back up once the base case returns."
-    ),
-    "plain": (
-        "Imagine you're at the back of a long line and want to know your place. You ask the person ahead "
-        "\"what's your number?\" They ask the person ahead of them, and so on. The first person just says "
-        "\"1\". Then everyone adds 1 on the way back.\n\n**Takeaway:** a big question gets answered by asking "
-        "the same, smaller question until it's easy."
-    ),
-}
+_MOCK_GENERIC = (
+    "[exasperated] Ugh, fine. [calm] This is the offline mock tutor, so I only know the recursion demo. "
+    "[proud] Ask me about recursion instead!"
+)
 
 
 class MockLLM(BaseLLM):
+    """Labelled offline scripted tutor (``EH_LLM_PROVIDER=mock``): no network, no key.
+    The UI shows a "Mock LLM" badge; every answer is the same script."""
+
     provider = "mock"
     model = "mock-tutor (offline)"
 
@@ -277,23 +258,9 @@ class MockLLM(BaseLLM):
         self.delay_s = delay_s
 
     async def stream(self, messages: list[dict[str, str]]) -> AsyncIterator[str | StreamInfo]:
-        note = next(
-            (m["content"] for m in messages[1:] if m["role"] == "system" and m["content"].startswith(ADAPTATION_MARKER)),
-            None,
-        )
         question = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-        if note is not None:
-            low = note.lower()
-            key = "trace" if "step at a time" in low else "plain" if "twelve-year-old" in low else "analogy"
-            body = _MOCK_ADAPTED[key]
-        elif "recurs" in question.lower():
-            body = _MOCK_RECURSION
-        else:
-            body = (
-                f"You asked: *{question[:160]}*\n\nIn live mode the OpenAI model answers here. "
-                "The offline mock only knows the recursion demo script."
-            )
-        for piece in re.findall(r"\S+\s*|\s+", _MOCK_NOTE + body):
+        body = _MOCK_RECURSION if ("recurs" in question.lower() or "рекурс" in question.lower()) else _MOCK_GENERIC
+        for piece in re.findall(r"\S+\s*|\s+", body):
             if self.delay_s:
                 await asyncio.sleep(self.delay_s)
             yield piece

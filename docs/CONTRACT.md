@@ -1,183 +1,194 @@
-# ExtraHorizon — API & message contract (v1)
+# ExtraHorizon — API & message contract (v2.1: calibrated emotions + voice)
 
-This is the single source of truth for everything that crosses the
-frontend ⇄ backend boundary. Change it **first**, then both sides, then the tests
-(`backend/tests/test_api.py`, `frontend/src/lib/*.test.js`, `frontend/e2e`).
+The single source of truth for everything that crosses the frontend ⇄ backend boundary.
+Change it **first**, then both sides, then the tests (`backend/tests/test_api.py`,
+`test_live.py`, `frontend/src/lib/*.test.js`, `frontend/e2e`).
 
-All routes live under `/api`. In dev the Vite server proxies `/api` (HTTP + WS)
-to the backend; in the demo build FastAPI serves the UI and the API from one origin.
+All routes live under `/api`. In dev the Vite server proxies `/api` (HTTP + WS) to the backend;
+in the demo build FastAPI serves the UI and the API from one origin.
 
-| Spec name (task)      | Implemented route                          |
-|-----------------------|--------------------------------------------|
-| `GET  /health`        | `GET  /api/health` (`?deep=1` also pings the LLM) |
-| `POST /chat`          | `POST /api/chat` → `text/event-stream`     |
-| `WS   /vision`        | `WS   /api/vision?session_id=…`            |
-| `POST /session/reset` | `POST /api/session/reset`                  |
-| (restore on refresh)  | `GET  /api/session/{session_id}/state`     |
+| Route | Purpose |
+|---|---|
+| `GET  /api/health` (`?deep=1` also pings the LLM) | status of every component |
+| `POST /api/chat` → `text/event-stream` | a typed question (also spoken on the live socket if open) |
+| `POST /api/session/interrupt` | stop button without the live socket |
+| `POST /api/session/reset` | new session |
+| `GET  /api/session/{session_id}/state` | restore the view after a refresh |
+| `WS   /api/vision?session_id=…` | camera frames → expression estimates |
+| `WS   /api/live?session_id=…` | the voice conversation (mic in, voice out) |
 
 ## Sessions
 
-* A session id is a lowercase UUID created by the browser tab
-  (`crypto.randomUUID()`, kept in `sessionStorage` → survives refresh, a new tab
-  gets a new session). The backend creates sessions lazily and keeps them **in
-  memory only** (idle TTL, LRU cap). Nothing is written to disk.
-* Every session owns its own: state engine (EMA, hold timer, cooldown),
-  calibration baseline, chat history, events, timeline, simulation flag.
-  Sessions never share state.
-* `boot_id` changes on every backend start. If the client sees a new `boot_id`
-  it knows server-side state is gone and clears its local view.
-* Only one vision socket per session: a newer socket supersedes the older one
-  (`{"type":"superseded"}`, close code 4001). When the last socket of a session closes,
-  the engine records `unknown` (`vision_disconnected`) and simulation is switched off.
-* A duplicated browser tab (which copies `sessionStorage`) detects the live owner of its
-  id over a `BroadcastChannel` and takes a fresh id.
-* Host/Origin: loopback names always; other machines only via explicit
-  `EH_ALLOWED_HOSTS` + `EH_ALLOWED_ORIGINS` (never `*`, which would allow DNS rebinding).
+* A session id is a lowercase UUID created by the browser tab (`sessionStorage` → survives a refresh; a new tab
+  gets a new session; a duplicated tab detects the live owner over a `BroadcastChannel` and takes a fresh id).
+* Sessions live **in memory only** (idle TTL, LRU cap) and own: the emotion engine, timeline, chat history, the
+  turn in flight, the voice being spoken, the simulation flag. Sessions never share state.
+* `boot_id` changes on every backend start; a client that sees a new one clears its local view.
+* One vision socket and one live socket per session: a newer socket supersedes the older one
+  (`{"type":"superseded"}`, close code 4001). When the vision socket closes the expression becomes *unknown*
+  (`vision_disconnected`) and simulation is switched off; when the live socket closes a spoken turn in flight is cancelled.
+* Host/Origin: loopback names always; other machines only via explicit `EH_ALLOWED_HOSTS` + `EH_ALLOWED_ORIGINS`
+  (never `*`). Cross-site HTTP gets 403; cross-site WebSockets are refused.
 
 ## `GET /api/health`
 
 ```json
 {
-  "status": "ok",
-  "boot_id": "b1c9…",
-  "version": "0.1.0",
-  "llm":    {"provider": "openai", "model": "gpt-6-luna", "configured": true,
-             "reachable": null, "last_error": null},
-  "vision": {"available": true, "reason": null, "model": "face_landmarker.task"},
-  "engine": {"alpha": 0.2, "reference_fps": 10, "threshold": 0.65, "hold_s": 2.0,
-             "cooldown_s": 15.0},
+  "status": "ok", "boot_id": "b1c9…", "version": "0.2.0", "persona": "Rika",
+  "llm":    {"provider": "openai", "model": "gpt-6-luna", "configured": true, "reachable": null, "last_error": null},
+  "vision": {"available": true, "reason": null, "model": "face_landmarker.task", "emotion_model": "enet_b0_8_va_mtl.onnx"},
+  "emotion": {"sensitivity": "balanced", "alpha": 0.2, "reference_fps": 10.0, "switch_hold_s": 1.2,
+              "switch_margin": 0.12, "min_prob": 0.42, "calibration_s": 2.5},   // server defaults (EH_EMOTION_*)
+  "tts":    {"provider": "fish", "model": "drama-3-preview", "voice": "c5d8…", "configured": true,
+             "state": "ok|degraded|down|off", "last_error": null, "warm": 1},
+  "stt":    {"provider": "openai", "model": "gpt-live-transcribe", "configured": true, "vad": true, "vad_reason": null},
+  "fillers": "idle|preparing|ready|failed",
   "sessions": 1
 }
 ```
-`reachable` is `null` unless `?deep=1` (then `true|false`, one cheap model lookup,
-5 s timeout). `provider: "mock"` means the explicitly-labelled offline scripted
-tutor used for tests/rehearsal — the UI shows a *Mock LLM* badge.
 
 ## `POST /api/chat` → Server-Sent Events
 
-Request (JSON):
-```json
-{"session_id": "…uuid…", "mode": "normal", "message": "Explain recursion to me.",
- "subject": "Computer Science"}
-{"session_id": "…uuid…", "mode": "explain_differently", "event_id": "ev_…"}
-```
-* `normal` requires `message` (1–4000 chars).
-* `explain_differently` requires an `event_id` of a `possible_confusion` event
-  from the **same session** that is still `offered` and fired after the latest
-  answer started. Otherwise `409` with `{"code": "no_active_event" | …}`.
-* HTTP errors before the stream starts: `400/404/409/422` with
-  `{"code": "...", "message": "..."}`.
+Request: `{"session_id": "…uuid…", "message": "Explain recursion to me.", "subject": "Computer Science"}`
+(`message` 1–4000 chars; `subject` optional). HTTP errors before the stream: `422` with `{"code","message"}`
+(e.g. `empty_message`).
 
-Stream events (`event: <name>\ndata: <json>\n\n`):
+| event | data |
+|---|---|
+| `meta` | `{request_id, source: "text"\|"voice", model, turn_no, voice: bool, user_message: {id, role, text, source, created}, assistant_message_id, emotion_context}` |
+| `delta` | `{text}` — append to the answer (contains voice cues like `[smug]`) |
+| `done` | `{assistant_message_id, finish_reason, ttft_ms, elapsed_ms, model, created, interrupted: false}` — committed to history |
+| `interrupted` | same as `done` with `interrupted: true` — stopped by barge-in / stop; the partial answer is committed and marked |
+| `error` | `{code, message, retryable}` — nothing committed |
 
-| event   | data |
-|---------|------|
-| `meta`  | `{request_id, mode, model, user_message: {id, role, text, mode}, assistant_message_id, adaptation}` — `adaptation` is `null` for normal turns, otherwise `{event_id, strategy: {id,label,description}, signal: {source, smoothed, raw, held_s}, rule: {alpha, threshold, hold_s, cooldown_s}, instruction}` |
-| `delta` | `{text}` — append to the answer |
-| `done`  | `{assistant_message_id, finish_reason, ttft_ms, elapsed_ms, model}` — the exchange is now committed to history |
-| `error` | `{code, message, retryable}` — stream ends; **nothing** is committed; the client shows *Retry* |
+`emotion_context` (also stored with the assistant message): `{available: true, dominant, strength, source: "camera"|"simulation", text, note, unchanged?}` or
+`{available: false, reason, source, text, note: null}`. `note` is **the exact system message** added to the prompt;
+`unchanged: true` = the same dominant expression as when the learner last spoke (the note then asks her not to comment again).
 
-Error codes: `llm_not_configured`, `llm_auth`, `llm_forbidden`, `llm_model`,
-`llm_rate_limited`, `llm_timeout`, `llm_unreachable`, `llm_upstream`,
-`llm_bad_request`, `llm_error`, `superseded` (a newer request of the same session
-replaced this one), `reset` (session was reset mid-stream).
+Error codes: `llm_not_configured`, `llm_auth`, `llm_forbidden`, `llm_model`, `llm_rate_limited`, `llm_timeout`,
+`llm_unreachable`, `llm_upstream`, `llm_bad_request`, `llm_empty`, `llm_error`, `superseded` (a newer question of the
+same session replaced this one), `reset`, `interrupted` (stopped before any text).
 
-Timeouts (config): first token ≤ `EH_LLM_FIRST_TOKEN_TIMEOUT_S` (15 s), gap
-between chunks ≤ `EH_LLM_IDLE_TIMEOUT_S` (20 s), whole answer ≤
-`EH_LLM_TOTAL_TIMEOUT_S` (60 s). The browser also runs its own idle watchdog, so
-the UI can never stay in "thinking" forever.
+Timeouts: first token ≤ `EH_LLM_FIRST_TOKEN_TIMEOUT_S` (15 s), gap ≤ `EH_LLM_IDLE_TIMEOUT_S` (20 s), whole answer ≤
+`EH_LLM_TOTAL_TIMEOUT_S` (60 s); the browser runs its own idle watchdog.
 
-**What is sent to the LLM provider:** system prompt, the session's previous
-chat turns (text only), the new user text, and — only for `explain_differently`
-— one short *adaptation note* (no numbers, no images, no landmarks).
+**Sent to the LLM:** the persona prompt, up to 10 previous exchanges (text only), the expression note (when
+available), the per-turn reply rules, the question. Never images, landmarks, probabilities or numbers.
 
-## `POST /api/session/reset`
+## `POST /api/session/interrupt` · `POST /api/session/reset` · `GET /api/session/{id}/state`
 
-`{"session_id": "…"}` → `{"ok": true, "epoch": 3}`. Clears history, events,
-timeline, engine (EMA, hold, cooldown), calibration baseline and cancels an
-in-flight answer. The vision socket (if any) receives `reset` + `snapshot`.
-Idempotent.
-
-## `GET /api/session/{session_id}/state`
-
-`{"session_id", "epoch", "boot_id", "subject", "messages": [...], "events": [...], "timeline": {...}}`
-used to restore the view after a page refresh. Messages:
-`{id, role: "user"|"assistant", text, mode, created, model?, adaptation?}`.
+* interrupt: `{"session_id"}` → `{"ok": true, "stopped": bool}` — same effect as the stop button on the live socket.
+* reset: `{"session_id"}` → `{"ok": true, "epoch": 3, "boot_id": "…"}` — clears history, emotion engine, timeline,
+  stops the voice and cancels a turn in flight; both sockets get `reset` + `snapshot`. Idempotent.
+* state: `{session_id, boot_id, epoch, subject, messages: [...], timeline, emotion}`; messages are
+  `{id, role, text, source, created, model?, ttft_ms?, emotion_context?, interrupted?}`.
 
 ## `WS /api/vision?session_id=…`
 
-Origin-checked, local only. Two kinds of client → server frames:
+Client → server:
 
-**Binary** — one camera frame: `4-byte big-endian uint32 seq` + `JPEG bytes`
-(browser downsizes to `frame_width` px, JPEG quality `jpeg_quality`, ≤ 512 KB).
-Flow control: the client keeps **one frame in flight** and sends the next one only
-after the `tick` with the same `seq` (or a 1.5 s timeout), capped at `max_fps`.
-The server additionally keeps only the latest pending frame (never queues).
-
-**Text (JSON)**
-```json
-{"type": "camera", "status": "active|off|initializing|denied|unavailable|ended|paused"}   // paused = tab hidden; frames are ingested only while "active"
-{"type": "sim", "enabled": true, "value": 0.8}     // Demo simulation mode (labelled in UI)
-{"type": "sim", "enabled": false}
-{"type": "calibrate"}                              // re-capture neutral baseline
-{"type": "ping", "t": 123}
-```
+* **binary** — one camera frame: 4-byte big-endian `seq` + JPEG (≤ 512 KB). The client keeps one frame in flight
+  (next after the `tick` with the same `seq`, or 1.5 s), capped at `max_fps`; the server keeps only the latest pending frame.
+* `{"type":"camera","status":"active|off|initializing|denied|unavailable|ended|paused"}` — frames are used only while `active`.
+* `{"type":"sim","enabled":true,"emotion":"happiness","intensity":0.8}` (10 Hz while on) · `{"type":"sim","enabled":false}` — labelled Demo simulation.
+* `{"type":"calibrate"}` — learn the learner's relaxed face again (Recalibrate button).
+* `{"type":"sensitivity","level":"calm|balanced|expressive"}` — sent on every connect (the learner's choice wins over
+  the server default) and when changed; unknown levels are ignored.
+* `{"type":"ping","t":…}`.
 
 Server → client:
 
 ```jsonc
-{"type": "hello", "session_id": "…", "boot_id": "…", "client_is_loopback": true,
- "vision": {"available": true, "reason": null},
- "config": {"alpha": 0.2, "reference_fps": 10, "threshold": 0.65, "hold_s": 2.0,
-            "cooldown_s": 15, "max_fps": 12, "frame_width": 480, "jpeg_quality": 0.75,
-            "calibration_s": 2.5}}
-
-{"type": "snapshot", "epoch": 3, "events": [...], "timeline": {...}, "engine": {...}|null}
-
-// one per processed frame and/or engine update
-{"type": "tick", "seq": 42, "t": 1790394305123,
- "vision": {"faces": 1, "boxes": [[x, y, w, h]], "quality": "ok|unknown|calibrating",
-            "reason": null, "pose": {"yaw": 1.4, "pitch": 4.7, "roll": 0.8},
-            "brightness": 121.0,
-            "features": {"brow_lower": 0.31, "lid_tighten": 0.2, "lip_press": 0.05, "smile": 0.02, "brow_raise_inner": 0.1},
-            "baseline": {...}, "contrib": {...}, "proxy": 0.42,
-            "calibration": {"progress": 0.4, "seconds": 2.5} | null,
-            "proc_ms": 6.8, "used_by_engine": true} | null,
- "engine": {"source": "camera|simulation", "status": "ok|unknown|calibrating", "reason": null,
-            "raw": 0.42, "smoothed": 0.38, "above": false, "held_s": 0.0, "hold_s": 2.0,
-            "threshold": 0.65, "cooldown_left_s": 0.0, "armed": true} | null}
-
-{"type": "event", "event": {"id": "ev_…", "kind": "possible_confusion|signal_decreased",
-  "label": "Possible confusion detected", "t": 1790394305123, "source": "camera|simulation",
-  "smoothed": 0.71, "raw": 0.74, "held_s": 2.03,
-  "rule": {"alpha": 0.2, "reference_fps": 10, "threshold": 0.65, "hold_s": 2.0, "cooldown_s": 15},
-  "answer_id": "m_…" | null, "status": "offered|used|expired|info"}}
-{"type": "event_update", "event": {...}}                       // status change: used / expired
-{"type": "marker", "marker": {"t": 1790394305123, "kind": "answer|event|adapted|decrease", "label": "…", "ref": "m_…|ev_…"}}
-{"type": "calibrating"}                                          // ack of {"type": "calibrate"}
+{"type": "hello", "session_id": "…", "boot_id": "…", "server_time": 1790…, "client_is_loopback": true,
+ "vision": {"available": true, "reason": null, "model": "…", "emotion_model": "…"},
+ "config": {…health emotion…, "max_fps": 12, "frame_width": 480, "jpeg_quality": 0.8}}
+{"type": "snapshot", "epoch": 3, "timeline": {...}, "emotion": {...}|null, "context": {...}, "sim": {"enabled": false},
+ "calibration": {"state": "collecting|ready", "progress": 0.4, "sensitivity": "balanced"}}
+{"type": "tick", "seq": 42|null, "t": 1790…,
+ "vision": {"faces": 1, "boxes": [[x, y, w, h]], "pose": {"yaw": 1.4, "pitch": 4.7, "roll": 0.8}, "brightness": 121.0,
+            "raw": {"probs": {"anger": 0.01, …}, "valence": 0.2, "arousal": 0.1} | null,   // the model as is, before calibration
+            "proc_ms": 14.2, "emotion_ms": 6.1, "quality": "ok|unknown", "reason": null|"no_face|multiple_faces|face_too_small|head_turned|too_dark|overexposed|bad_frame|no_emotion_estimate",
+            "used_by_engine": true,
+            "calibration": {"state": "collecting|ready", "progress": 1.0, "sensitivity": "balanced"},  // absent while simulating
+            "weight": 0.64, "actions": ["frowning, brows pulled down"]} | null,  // weight/actions: only once calibrated
+ "emotion": {"source": "camera|simulation", "status": "ok|unknown|calibrating", "reason": null|"calibrating"|"…",
+             "probs": {"anger": 0.02, …, "surprise": 0.05} | null, "valence": 0.31 | null, "arousal": 0.12 | null,
+             "dominant": "happiness" | null, "dominant_prob": 0.62 | null, "dominant_for_s": 4.2} | null,
+ "calibration": {…}}   // top-level only on the tick answering {"type":"calibrate"} (vision: null, emotion: calibrating)
+{"type": "calibration", "calibration": {"state": "ready", "progress": 1.0, "sensitivity": "calm"}}   // answer to "sensitivity"
+{"type": "emotion_note", "context": {"available": true, "dominant": "happiness", "strength": "mostly", "source": "camera", "text": "…", "note": "[What you see on the learner's webcam right now] …"}}   // only when the words change
+{"type": "marker", "marker": {"t": 1790…, "kind": "emotion|answer", "label": "happy|Answer|Interrupted", "ref": "happiness|m_…"}}
+{"type": "assistant_interrupted", "message_id": "m_…"}
 {"type": "reset", "epoch": 4}
 {"type": "superseded"}
-{"type": "error", "code": "vision_unavailable|bad_frame|frame_too_large|bad_message", "message": "…"}
+{"type": "error", "code": "vision_unavailable|vision_busy|bad_frame|frame_too_large|bad_message", "message": "…"}
 {"type": "pong", "t": 123}
 ```
 
-Timeline payload: `{"samples": [[t_ms, raw|null, smoothed|null, status, source], ...],
-"markers": [{"t": t_ms, "kind": "answer|event|adapted|decrease", "label": "…", "ref": "…"}]}`
-with `status ∈ {"ok","unknown","calibrating"}` and `source ∈ {"camera","simulation"}`.
+Timeline: `{"samples": [[t_ms, status, source, dominant|null, probs[8]|null, valence|null, arousal|null], …], "markers": [...]}`;
+`probs` in the model's class order `anger, contempt, disgust, fear, happiness, neutral, sadness, surprise`.
+Unknown and calibrating samples have `probs: null` (a gap, never zeros).
 
-## Engine rule (single place that decides adaptation)
+## `WS /api/live?session_id=…`
+
+Client → server:
+
+* **binary** — microphone audio, PCM16 little-endian mono **24 kHz**, any frame size (the UI sends 40 ms).
+* `{"type":"mic","on":true|false}` — voice mode on/off (connects/closes speech-to-text; audio is ignored while off).
+* `{"type":"voice_out","on":true|false}` — speak answers (Fish Audio) or text only.
+* `{"type":"playback","playing":true|false}` — the browser is (not) playing tutor audio (barge-in rules apply while true).
+* `{"type":"interrupt"}` — stop button. · `{"type":"ping","t":…}`.
+
+Server → client:
+
+```jsonc
+{"type": "hello", "boot_id": "…", "persona": "Rika", "fillers": "ready", "vad": true,
+ "config": {"input_sample_rate": 24000, "output_sample_rate": 44100, "barge_in": true, "vad_end_silence_ms": 550, "merge_window_s": 3.0},
+ "tts": {…health tts…}, "stt": {"provider": "openai", "model": "gpt-live-transcribe", "configured": true}}
+{"type": "vad", "speaking": true, "utt": 3, "continues": 2|null, "barge": false}   // continues: joins the paused sentence
+{"type": "vad", "speaking": false, "utt": 3, "turn_no": 5}
+{"type": "stt", "utt": 3, "text": "Explain recursion", "final": false}             // live transcript of one utterance
+{"type": "heard", "utt": 3, "turn_no": 5, "text": "Explain recursion to me."}      // the whole question (joined)
+{"type": "stt_ignored", "utt": 3, "turn_no": 5, "reason": "empty|echo|stop|stopped", "text": "Wait, stop."}   // stopped: Stop/barge-in/reset came first
+{"type": "turn", "event": "meta|delta|done|interrupted|error|dropped", "turn_no": 5, "data": {…as in SSE…}}  // dropped: {reason: "merged|discarded|stopped"} — remove the turn (it was never heard)
+{"type": "filler", "turn_no": 5, "text": "Hmm..."}
+{"type": "audio_begin", "turn_no": 5, "kind": "filler|answer", "sample_rate": 44100}
+// binary: 4-byte big-endian turn_no + PCM16LE mono audio of that turn (a filler and its answer share the turn number)
+{"type": "audio_end", "turn_no": 5, "failed": null|"…"}
+{"type": "audio_stop", "turn_no": 5}          // stop playing this turn now; later frames of it are never sent
+{"type": "barge_in", "by": "voice|button"}   // stop everything now
+{"type": "assistant_interrupted", "message_id": "m_…"}
+{"type": "stt_error"|"tts_error", "message": "…"} · {"type": "error", "code": "vad_unavailable|stt_unavailable|bad_message", "message": "…"}
+{"type": "superseded"} · {"type": "reset", "epoch": 4} · {"type": "snapshot", …} · {"type": "pong", "t": …}
+```
+
+Player rules (browser): frames of the current turn are scheduled back to back; a frame with a newer turn number
+cuts the older turn; frames of a stopped or older turn are dropped; `barge_in` stops everything.
+
+## Emotion engine (single place that decides the expression)
 
 ```
-input   : confusion proxy p ∈ [0,1] per observation (camera or labelled simulation)
-unknown : no face | >1 face | small face | head turned | too dark/bright | bad frame
-          | calibrating | camera off/paused | vision socket closed | gap > max_gap_s
-          → smoothed = null, hold timer reset (never "neutral", never "confused")
-smooth  : EMA, time-based: a = 1 − (1 − α)^(Δt·reference_fps)   (α = 0.2 @ 10 fps)
-trigger : smoothed > threshold continuously for ≥ hold_s (wall-clock seconds)
-          and not in cooldown and armed → ONE `possible_confusion` event, cooldown
-          starts, hold accumulation paused during cooldown
-episode : after an event the engine is disarmed until smoothed < rearm_threshold (0.55)
-          or a new answer is committed — a face that just stays tense is not nagged
-relief  : after an adapted answer, smoothed < relief_threshold for ≥ relief_hold_s
-          (status ok) within relief_window_s → one informational `signal_decreased`
+input      : 8 class probabilities + logits + valence/arousal per frame (camera: face aligned upright, averaged
+             with its mirror image) + 52 blendshapes + head pose; or per tick (labelled simulation, no calibration)
+unknown    : no face | >1 face | small face | head turned | too dark/bright | bad frame | no estimate
+             | camera off/paused | vision socket closed | gap > max_gap_s (1 s)
+             → probs = null, dominant = null, smoothing restarts (never "neutral")
+calibrate  : per session, the first ~2.5 s (≥ 15 frames) of a relaxed face → baseline (medians of logits, VA,
+             blendshapes, pose); frames while the learner talks / jaw open / head turned are skipped (until 8 s);
+             status "calibrating" meanwhile; {"type":"calibrate"} or 90 s without a face → learn again
+correct    : z' = z − 0.9·clip(z_base − z_ref, ±6)   (z_ref = a typical relaxed face, neutral ≈ 0.7)
+evidence   : every non-neutral class needs its baseline-relative facial actions (FACS-style blendshape deltas,
+             thresholds × the sensitivity scale); missing evidence moves its probability mass to neutral
+weight     : head pose vs the calibration pose (1 within ±6° pitch / ±8° yaw → 0.1 at ~24° / 30°),
+             × 0.5 while the learner talks; the smoothing step is scaled by it
+adapt      : the baseline follows drift (τ 60 s) only while the face is clearly relaxed
+smooth     : per class EMA, time-based: a = (1 − (1 − α)^(Δt·reference_fps)) · weight
+dominant   : a non-neutral expression needs ≥ min_prob; a new leader must lead for ≥ switch_hold_s by
+             ≥ switch_margin; a faded expression returns to neutral
+presets    : calm       α 0.15, hold 1.6 s, margin 0.15, min_prob 0.50, evidence × 1.35
+             balanced   α 0.20, hold 1.2 s, margin 0.12, min_prob 0.42, evidence × 1.00   (default)
+             expressive α 0.30, hold 0.8 s, margin 0.08, min_prob 0.32, evidence × 0.75
+note       : words only, phrased as her own view on the call — "[What you see on the learner's webcam right now]
+             The learner looks mostly annoyed. Visible right now: frowning, …" (strength: clearly/mostly/somewhat;
+             mood: positive/neutral/negative + energy; the previous expression and roughly when) — no digits
 ```

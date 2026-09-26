@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ExtraHorizon — start the demo.
 #   ./scripts/start.sh             backend + built UI  -> http://127.0.0.1:8765
-#   ./scripts/start.sh --mock-llm  offline, labelled scripted tutor (no API key / internet)
+#   ./scripts/start.sh --mock-llm  offline, labelled scripted tutor (no OpenAI key / internet)
+#   ./scripts/start.sh --mock-voice offline voice doubles (tone instead of Fish Audio, scripted transcript)
 #   ./scripts/start.sh --open      open the browser when ready
 #   ./scripts/start.sh --dev       backend in background + Vite hot-reload UI -> http://127.0.0.1:5173
 set -euo pipefail
@@ -11,7 +12,7 @@ dev=0; flags=(--port "$port")
 for a in "$@"; do
   case "$a" in
     --dev) dev=1 ;;
-    --mock-llm|--open|--no-vision) flags+=("$a") ;;
+    --mock-llm|--mock-voice|--open|--no-vision) flags+=("$a") ;;
     *) echo "unknown option $a" >&2; exit 2 ;;
   esac
 done

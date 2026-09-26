@@ -1,1 +1,1 @@
-"""Local vision pipeline: MediaPipe Face Landmarker -> quality gates -> confusion proxy."""
+"""Local vision pipeline: MediaPipe Face Landmarker -> quality gates -> on-device expression model."""

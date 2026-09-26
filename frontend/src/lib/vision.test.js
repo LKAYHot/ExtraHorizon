@@ -69,8 +69,11 @@ const hello = {
   vision: { available: true, reason: null }, config: { max_fps: 12 },
 }
 const makeApp = () => ({
-  sessionId: '00000000-0000-4000-8000-000000000000', sim: { enabled: false, value: 0.1 },
-  onHello() {}, onSnapshot() {}, onTick() {}, onEvent() {}, onMarker() {}, onServerReset() {}, onSocketClosed() {}, toast() {},
+  sessionId: '00000000-0000-4000-8000-000000000000', sim: { enabled: false, emotion: 'happiness', intensity: 0.8 },
+  notes: [],
+  onHello() {}, onSnapshot() {}, onTick() {}, onMarker() {}, onServerReset() {}, onSocketClosed() {}, toast() {},
+  onAssistantInterrupted() {},
+  onEmotionNote(ctx) { this.notes.push(ctx) },
 })
 const settle = (ms = 350) => new Promise((r) => setTimeout(r, ms))
 
@@ -147,5 +150,60 @@ describe('VisionController', () => {
     v.stopCamera()
     expect(second.track.stopped).toBe(true)
     expect(v.camera).toBe('off')
+  })
+
+  it('labelled simulation sends the chosen expression (not a number) to the same engine', async () => {
+    const app = makeApp()
+    const v = new VisionController(app)
+    v.start()
+    const ws = sockets.at(-1)
+    ws.open()
+    ws.msg(hello)
+    app.sim.enabled = true
+    app.sim.emotion = 'sadness'
+    v.setSimulation(true)
+    await settle(150)
+    const sims = ws.sent.filter((d) => typeof d === 'string').map((d) => JSON.parse(d)).filter((m) => m.type === 'sim')
+    expect(sims.at(-1)).toEqual({ type: 'sim', enabled: true, emotion: 'sadness', intensity: 0.8 })
+    v.setSimulation(false)
+    const last = JSON.parse(ws.sent.filter((d) => typeof d === 'string').at(-1))
+    expect(last).toEqual({ type: 'sim', enabled: false })
+    v.stop()
+  })
+
+  it('passes the live prompt-note preview to the app', () => {
+    const app = makeApp()
+    const v = new VisionController(app)
+    v.start()
+    const ws = sockets.at(-1)
+    ws.open()
+    ws.msg({ type: 'emotion_note', context: { available: true, note: 'x', text: 'x' } })
+    expect(app.notes).toHaveLength(1)
+    v.stop()
+  })
+
+  it('recalibrates on request and remembers the sensitivity (sent again after a reconnect)', () => {
+    const v = new VisionController(makeApp())
+    v.start()
+    let ws = sockets.at(-1)
+    ws.open()
+    // the learner's choice (default balanced) is always sent: it wins over EH_EMOTION_SENSITIVITY
+    expect(ws.sent.map((d) => JSON.parse(d))).toContainEqual({ type: 'sensitivity', level: 'balanced' })
+    ws.msg(hello)
+    v.recalibrate()
+    v.setSensitivity('calm')
+    const sent = ws.sent.filter((d) => typeof d === 'string').map((d) => JSON.parse(d))
+    expect(sent).toContainEqual({ type: 'calibrate' })
+    expect(sent).toContainEqual({ type: 'sensitivity', level: 'calm' })
+    expect(v.calibration.state).toBe('collecting')
+    ws.msg({ type: 'tick', seq: null, t: 1, vision: null, emotion: null, calibration: { state: 'ready', progress: 1, sensitivity: 'calm' } })
+    expect(v.calibration.state).toBe('ready')
+    const again = new VisionController(makeApp())
+    again.start()
+    ws = sockets.at(-1)
+    ws.open()
+    expect(ws.sent.map((d) => JSON.parse(d))).toContainEqual({ type: 'sensitivity', level: 'calm' })
+    v.stop()
+    again.stop()
   })
 })

@@ -1,6 +1,6 @@
 #!/bin/sh
 # ExtraHorizon secret guard (pre-commit): blocks committing API keys or .env files.
-# Installed via: git config core.hooksPath .githooks   (see scripts/install_hooks.*)
+# Installed via: git config core.hooksPath .githooks   (see scripts/setup.*)
 PATTERN='(sk-[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
 
 bad_files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)\.env($|\.)' | grep -v -E '(^|/)\.env\.example$')
@@ -10,13 +10,21 @@ if [ -n "$bad_files" ]; then
   exit 1
 fi
 
-if git diff --cached -U0 --diff-filter=ACMR | grep -E '^\+' | grep -qE "$PATTERN"; then
-  echo "secret-guard: staged changes contain something that looks like an API key / private key." >&2
-  echo "  Files:" >&2
-  for f in $(git diff --cached --name-only --diff-filter=ACMR); do
-    if git show ":$f" 2>/dev/null | grep -qE "$PATTERN"; then echo "    $f" >&2; fi
-  done
-  echo "  Move secrets to .env (git-ignored). Commit aborted." >&2
+added=$(git diff --cached -U0 --diff-filter=ACMR | grep -E '^\+')
+if echo "$added" | grep -qE "$PATTERN"; then
+  echo "secret-guard: staged changes contain something that looks like an API key / private key. Commit aborted." >&2
   exit 1
+fi
+
+# every secret VALUE from the local .env (whatever its format, e.g. 32-hex Fish keys)
+root=$(git rev-parse --show-toplevel)
+if [ -f "$root/.env" ]; then
+  values=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*=' "$root/.env" | sed -E 's/^[^=]*=//; s/^["'"'"']//; s/["'"'"']$//' | awk 'length($0) >= 16')
+  for v in $values; do
+    if echo "$added" | grep -qF -- "$v"; then
+      echo "secret-guard: staged changes contain a secret value from .env. Commit aborted." >&2
+      exit 1
+    fi
+  done
 fi
 exit 0

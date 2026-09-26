@@ -1,109 +1,142 @@
-# ExtraHorizon — an adaptive AI tutor that notices when an explanation isn't landing
+# ExtraHorizon — Rika, an emotion-aware voice tutor you can actually talk to
 
-ExtraHorizon streams tutor answers from an LLM while a **local** vision pipeline estimates a
-*confusion proxy* from your facial expression. When that estimate stays high for about two
-seconds after an answer, the tutor offers **"Explain differently"** — and re-explains with an
-analogy, a concrete example and short steps. A **"Why it adapted"** card shows the real signal,
-the rule that fired, the strategy and the exact note sent to the model.
+ExtraHorizon is an AI tutor you **talk to** — hands-free, like a call. **Rika** (a tsundere
+anime girl with an expert's rigour) answers **out loud** in an expressive Fish Audio voice,
+fills the thinking gap with a natural "Hmm…", stops the moment you talk over her, and lets you
+pause mid-sentence without cutting you off. A **local** camera pipeline first learns **your** relaxed
+face (a 2.5 s calibration), then estimates your **facial expression** relative to it (8 emotions +
+valence/arousal, backed by visible facial actions), visualises it live, and gives her a short, words-only
+description — her "eyes" on the call — so she adapts her tone and pacing like a person would.
 
-> Key chain: **camera → local signal → stable event → context → visibly different LLM answer.**
-> This is an experimental estimate of visible behavioural cues, not a reading of anyone's inner state.
+> Key chain: **mic → local voice detection → live transcript → LLM (+ expression note) → voice cues → Fish voice → you**,
+> and **camera → on-device face + expression models → per-person calibration → emotion engine → prompt note**.
+> Expressions are estimates of how a face *looks* — not a reading of anyone's feelings.
 
-Built for ShellHacks. Stack: **SvelteKit (Svelte 5) → Python FastAPI → OpenAI**, with Google
-**MediaPipe Face Landmarker** running on the local CPU.
+Built for ShellHacks. Stack: **SvelteKit (Svelte 5) → Python FastAPI → OpenAI (chat + realtime
+transcription) + Fish Audio (drama-3-preview)**, with **MediaPipe**, **EmotiEffLib** and **Silero
+VAD** running on the local CPU.
 
 ---
 
 ## Quick start (Windows, 3 commands)
 
-Prerequisites: [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`), Node.js ≥ 22.12 — tested with 24 (`winget install OpenJS.NodeJS.LTS`), a webcam (optional), an OpenAI API key.
+Prerequisites: [uv](https://docs.astral.sh/uv/) (`winget install astral-sh.uv`), Node.js ≥ 22.12 — tested with 24
+(`winget install OpenJS.NodeJS.LTS`), a webcam and a microphone (both optional; headphones recommended), an
+OpenAI API key and a Fish Audio API key.
 
 ```powershell
-.\scripts\setup.ps1          # backend deps, face model download (+ SHA-256 check), UI build, .env from template
-notepad .env                 # set OPENAI_API_KEY=...   (.env is git-ignored and blocked by pre-commit/pre-push hooks)
+.\scripts\setup.ps1          # backend deps, 3 local models (+ SHA-256 check), UI build, .env from template
+notepad .env                 # OPENAI_API_KEY=...  FISH_API_KEY=...  (.env is git-ignored and blocked by the hooks)
 .\scripts\start.ps1 -Open    # http://127.0.0.1:8765
 ```
 
 macOS / Linux / Git Bash: `./scripts/setup.sh`, then `./scripts/start.sh --open`.
 
-Variants: `start.ps1 -MockLLM` (labelled offline scripted tutor — no key, no internet) ·
-`start.ps1 -Dev` (Vite hot reload on http://127.0.0.1:5173) · `uv run extrahorizon --help` in `backend/`.
-
-Manual equivalent: `cd backend && uv sync && uv run python -m extrahorizon.vision.model_fetch`,
-`cd frontend && npm install && npm run build`, then `cd backend && uv run extrahorizon`.
+Variants: `-MockLLM` (labelled offline scripted tutor) · `-MockVoice` (offline voice doubles: a tone
+instead of Fish Audio, a scripted transcript) · `-Dev` (Vite hot reload on http://127.0.0.1:5173) ·
+`uv run extrahorizon --help` in `backend/`.
 
 ## The 60–90 s demo
 
-1. Open the app → click **Turn on camera** (first visit only; the card explains the data path) → allow the browser prompt. The face box appears and a neutral baseline is captured for 2.5 s.
-2. Ask **"Explain recursion to me."** → the answer streams (≈0.6 s to first token in our tests).
-3. Frown for ~2 s → the meter crosses 0.65, the hold bar fills, **Possible confusion detected**.
-4. Click **Explain differently** → a different explanation (analogy → example → short steps), badged *Adapted*.
-5. **Why it adapted** shows the measured values, the rule, the strategy, the exact note — and *"decrease observed"* only if the estimate really went down afterwards.
-6. **New session / Reset demo** clears chat, signal state, cooldown and timeline.
+1. Open the app → **Turn on camera** (the card explains the data path) → look at the screen with a relaxed
+   face for ~3 s (**Calibrating…**, dashed violet box) → the face box gets a label (*Neutral*); the
+   **Expression** panel shows the dominant expression, 8 calibrated bars, the mood map and the stacked
+   timeline; **What Rika is told** shows the exact note. **Calm · Balanced · Expressive** sets how readily an
+   expression is reported; **Recalibrate** learns your face again.
+2. Click the **microphone** → read the one-time disclosure → pick the microphone in its list (also in the sidebar
+   and under the chat while talking; the choice is remembered) → **Turn on microphone**. Ask *"Can you see me?"* — she says she
+   does and what you look like (briefly, in character). Just talk:
+   *"Explain recursion to me."* The orb turns green while she hears you; a filler ("Hmph.") plays the
+   instant you stop; her answer starts ≈1.7–2.5 s after you stop speaking, in character, with voice cues
+   shown as small stage directions in the chat.
+3. Talk over her — *"Wait, stop."* — she stops at once (and "wait, stop" alone does not start a new answer).
+4. Pause mid-sentence ("Explain recursion to me… and give an example") — the parts are joined into one question.
+5. Smile or frown clearly for a second → the expression changes in the panel (a small brow twitch or a lowered
+   head does not); the next answer's **expression sent** chip shows what went into her prompt.
+6. **New session** clears chat, emotion history and timeline.
 
-No camera? The UI says "Vision unavailable — chat still works". The **Demo simulation mode** card
-drives the same engine with a slider; everything it produces is labelled **SIMULATED**.
-Full script, fallbacks and honest claims: [docs/PITCH.md](docs/PITCH.md).
+No camera? Everything still works; the **Demo simulation mode** card drives the same emotion engine with a
+chosen expression — labelled **SIMULATED** everywhere. Full script, fallbacks and honest claims:
+[docs/PITCH.md](docs/PITCH.md).
 
 ## Architecture
 
 ```
-Browser (SvelteKit SPA)                  Python process, same machine (FastAPI)                     OpenAI
-camera → 480px JPEG ──WS /api/vision──▶ MediaPipe (thread pool) → quality gates → confusion proxy
-tick/event/marker ◀────────────────────  → per-session state engine (EMA · 2 s hold · 15 s cooldown)
-chat ──POST /api/chat (SSE)───────────▶ session → context builder ──(text + abstract note)──▶ gpt-6-luna
-     ◀── meta / delta / done / error ──  timeouts · cancel · commit only on success
+Browser (SvelteKit SPA)                       Python process, same machine (FastAPI)                   Cloud
+camera → 480px JPEG ─WS /api/vision─▶ MediaPipe face → quality gates → EmotiEffLib (ONNX, aligned + mirrored)
+                  ◀── tick / emotion_note ──  → calibration (baseline · facial actions · pose) → engine ─┐
+mic → AudioWorklet PCM16 24 kHz ─WS /api/live─▶ Silero VAD → speech only ──────────────────────────┼─▶ OpenAI gpt-live-transcribe
+                  ◀── vad / stt / heard ────   turn logic: filler · speculation · barge-in ·     │
+                  ◀── turn meta/delta/done ─   "wait, stop" · continued sentences · echo guard     │
+                  ◀── PCM voice (turn-tagged)  context (persona + expression note + rules) ───────┼─▶ OpenAI gpt-6-luna (stream)
+typed chat ─POST /api/chat (SSE)──────────▶   splitter → voice cues kept, code/maths removed ─────┴─▶ Fish Audio drama-3-preview
 ```
 
 * Contract (every message and field): [docs/CONTRACT.md](docs/CONTRACT.md)
-* Components, failure handling, data flow: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-* Confusion proxy method, parameters, **limitations**: [docs/CONFUSION_PROXY.md](docs/CONFUSION_PROXY.md)
+* Components, turn-taking, failure handling: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+* Voice pipeline and measured latencies: [docs/VOICE.md](docs/VOICE.md)
+* Emotion method, prompt note, **limitations**: [docs/EMOTIONS.md](docs/EMOTIONS.md)
 * What was tested and how: [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md)
-* Everything external (libraries, model, APIs, assets, AI assistance): [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md)
+* Everything external (services, models, libraries, assets, AI assistance): [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md)
 
 | Path | What |
 |---|---|
-| `backend/extrahorizon/engine.py` | the adaptation rule (pure, clock-injected) |
-| `backend/extrahorizon/vision/` | MediaPipe analysis, quality gates, confusion proxy, model download |
-| `backend/extrahorizon/context.py` | what the LLM receives (strategies + adaptation note) |
-| `backend/extrahorizon/llm.py` | OpenAI streaming, error mapping, labelled mock |
-| `backend/extrahorizon/sessions.py` · `app.py` · `vision_ws.py` | sessions/events/reset · HTTP/SSE · camera socket |
-| `frontend/src/lib/` | app store, camera/socket controller, SSE client, components |
-| `backend/scripts/` | `demo_check.py` (live chain ×N), `vision_probe.py` (webcam tuning), `make_fake_camera.py` |
+| `backend/extrahorizon/live_ws.py` · `turns.py` | the voice conversation (turn-taking) · one tutor turn (LLM → splitter → voice) |
+| `backend/extrahorizon/voice/` | Fish Audio client, fillers, speech-to-text, Silero VAD segmenter, cue handling, splitter, silence cap |
+| `backend/extrahorizon/emotion/` · `vision/` | expression model, per-person calibration, emotion engine · MediaPipe analysis, quality gates, model download |
+| `backend/extrahorizon/context.py` | what the LLM receives: the Rika persona, voice-cue rules, the expression note |
+| `backend/extrahorizon/sessions.py` · `app.py` · `vision_ws.py` | sessions/turns/reset · HTTP/SSE/routes · camera socket |
+| `frontend/src/lib/` | app store, voice controller + audio (mic worklet with device choice, player), camera controller, components |
+| `backend/scripts/` | `demo_check.py` (live chain against the running app), `vision_probe.py` (webcam check), `make_fake_camera.py` / `make_fake_mic.py` (test clips) |
 | `.claude/skills/` | Claude Code skills for running, testing, rehearsing, tuning and the architecture contract |
 
 ## Privacy — what goes where (the same text is in the app)
 
-* **Camera frames** are downsized in the browser and sent over a **localhost** WebSocket to the ExtraHorizon Python process on the same computer, analysed in memory by Google's MediaPipe library and discarded. They are never written to disk and never sent to OpenAI. (If you run the backend on another machine, frames travel over the network — the UI then drops the "stays on this device" claim.)
-* **OpenAI** receives: your chat messages, the tutor's earlier answers in this session and — only after you click *Explain differently* — a one-sentence adaptation note (no numbers, no images, no landmarks).
-* **Google (MediaPipe library):** the official MediaPipe wheels send **usage metrics** (performance/utilisation: e.g. task name, frame counts, latency, OS/Python version) to Google — we observed HTTPS connections to a Google server about a minute into a camera session and when a session ended. Per [Google's MediaPipe privacy notice](https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice), input images/video are not sent. There is no documented switch to turn this off; ExtraHorizon therefore starts the camera only after an explicit click on a card that discloses it, and does not create a MediaPipe session at server start.
-* **Stored:** nothing. Sessions live in memory; *Reset demo* or stopping the backend deletes them.
-* The API key lives only in the git-ignored `.env`, read by the backend; it is never sent to the browser or logged.
+* **Camera frames** are downsized in the browser and sent over a **localhost** WebSocket to the ExtraHorizon
+  Python process on the same computer, analysed in memory (MediaPipe + the on-device expression model) and
+  discarded — never written to disk, never sent to any cloud service.
+* **Microphone audio** goes to the same local process, where Silero VAD detects speech; **only the parts where
+  you speak** (+0.4 s before) are sent to **OpenAI** for transcription. Nothing is recorded.
+* **OpenAI (chat)** receives your messages (typed or transcribed), her earlier answers in this session and — only
+  when one face is clearly in view and calibrated — a short words-only description of your apparent expression and
+  visible facial actions (e.g. "frowning"). No images, no numbers.
+* **Fish Audio** receives the text of her answers (and nine filler phrases once) to speak them.
+* **Google (MediaPipe library):** the official MediaPipe wheels send **usage metrics** (e.g. frame counts,
+  latency, OS/Python version) to Google while a camera session runs — per
+  [Google's notice](https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice)
+  never images or video. The camera starts only after an explicit click on a card that says so.
+* **Stored:** nothing. Sessions live in memory; *New session* or stopping the backend deletes them.
+* The API keys live only in the git-ignored `.env`, read by the backend; never sent to the browser or logged.
 
 ## Tests
 
 ```powershell
-.\scripts\test.ps1 -E2E      # pytest (72) + vitest (16) + svelte-check + build + Playwright (9)
-cd backend; uv run python scripts/demo_check.py --runs 10    # live chain against the running app + real OpenAI
+.\scripts\test.ps1 -E2E      # pytest + vitest + svelte-check + build + Playwright (virtual camera AND virtual microphone)
+cd backend; uv run python scripts/demo_check.py --runs 3 --speech ..\frontend\e2e\.cache\question.wav   # live, real providers
 ```
 
 Results and the manual matrix (pass / fail / not tested): [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md).
 
 ## Configuration
 
-All thresholds and timings are environment variables (`EH_*`) with defaults in
-`backend/extrahorizon/config.py`; the annotated list is in [.env.example](.env.example).
-The engine defaults follow the spec's working hypotheses (α 0.2, threshold 0.65, 2 s hold,
-15 s cooldown) and should be re-checked with the real camera before the show
-(`backend/scripts/vision_probe.py`, see docs/CONFUSION_PROXY.md).
+Every threshold and timing is an environment variable (`EH_*`) with defaults in
+`backend/extrahorizon/config.py`; the annotated list is in [.env.example](.env.example) — e.g.
+`EH_VAD_END_SILENCE_MS` (how fast she answers), `EH_BARGE_IN_*` (how easily you interrupt her),
+`EH_VOICE_MERGE_WINDOW_S`, `EH_EMOTION_SENSITIVITY` / `EH_EMOTION_CALIBRATION_S` / other `EH_EMOTION_*`, `EH_FISH_*`.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Chat: "OPENAI_API_KEY is not set" | put the key in `.env` (repo root) and restart |
-| "Vision unavailable" | camera permission / another app using the camera / model download failed (`uv run python -m extrahorizon.vision.model_fetch`) — chat keeps working |
-| Face not detected | light the face, move closer, one person in frame, **Recalibrate** |
+| "OPENAI_API_KEY is not set" / no voice (`FISH_API_KEY missing`) | put the keys in `.env` (repo root) and restart |
+| She interrupts herself / stops when she hears her own voice | use headphones or lower the speaker volume; raise `EH_BARGE_IN_THRESHOLD` / `EH_BARGE_IN_MIN_MS` |
+| She answers before you finished | raise `EH_VAD_END_SILENCE_MS` (e.g. 700); pauses up to `EH_VOICE_MERGE_WINDOW_S` are already joined |
+| Microphone error | allow the microphone in the address bar; only `localhost`/HTTPS pages may use it |
+| Wrong microphone (e.g. the webcam mic) | choose it in the **Microphone** list (sidebar, or under the chat while talking) — it switches live; an unplugged device falls back to the default |
+| "Vision unavailable" | camera permission / another app using the camera / model download failed (`uv run python -m extrahorizon.vision.model_fetch`) — chat and voice keep working |
+| Expression stays *Unknown* | one face, well lit, facing the screen, not too far away |
+| Reads *Angry* / *Unimpressed* while you are relaxed | **Recalibrate** with a relaxed face (it learns *your* neutral); **Calm** needs clearer expressions |
+| Stuck on *Calibrating…* | look at the screen with a relaxed face and stay quiet ~3 s (talking and a turned head are skipped) |
 | Port 8765 busy | an old backend is still running — stop it (`Get-NetTCPConnection -LocalPort 8765`) |
 | "UI is not built yet" page | `cd frontend && npm run build`, restart the backend |
 

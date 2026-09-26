@@ -3,7 +3,7 @@
   import { app } from '$lib/app.svelte.js'
   import Sidebar from '$lib/components/Sidebar.svelte'
   import ChatPanel from '$lib/components/ChatPanel.svelte'
-  import VisionPanel from '$lib/components/VisionPanel.svelte'
+  import EmotionPanel from '$lib/components/EmotionPanel.svelte'
   import Toasts from '$lib/components/Toasts.svelte'
 
   onMount(() => {
@@ -11,11 +11,18 @@
       if (document.hidden) document.documentElement.dataset.hidden = '1'
       else delete document.documentElement.dataset.hidden
     }
+    // Esc stops her (voice and the answer in flight), like speaking over her does
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (app.talkState === 'speaking' || app.talkState === 'thinking' || app.busy) app.stopAnswer()
+    }
     document.addEventListener('visibilitychange', onVis)
+    document.addEventListener('keydown', onKey)
     const stopSpot = spotlight()
     app.start()
     return () => {
       document.removeEventListener('visibilitychange', onVis)
+      document.removeEventListener('keydown', onKey)
       stopSpot()
       app.shutdown()
     }
@@ -54,7 +61,7 @@
 <div class="shell">
   <Sidebar />
   <ChatPanel />
-  <VisionPanel />
+  <EmotionPanel />
 </div>
 <Toasts />
 

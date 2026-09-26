@@ -28,6 +28,8 @@ frontend/blob-report/
 # ---------------------------------------------------------------- downloaded models / runtime data
 backend/models/*.task
 backend/models/*.tflite
+backend/models/*.onnx
+backend/cache/
 *.log
 logs/
 tmp/

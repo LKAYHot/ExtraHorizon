@@ -1,54 +1,64 @@
 ---
 name: extrahorizon-architecture
-description: Architecture map, API/WebSocket contract and non-negotiable invariants of ExtraHorizon (SvelteKit UI ⇄ FastAPI ⇄ OpenAI, local MediaPipe vision, per-session state engine). Use this BEFORE changing any message, endpoint, event, engine rule, prompt/context text, privacy wording or dependency — and whenever you need to know "where does X live", "what does the UI receive", "what is sent to OpenAI", or when adding a feature (auto-adapt, new strategy, new signal, new provider). Also use it when updating EXTERNAL_DEPENDENCIES.md, README or the pitch.
+description: Architecture map, API/WebSocket contract and non-negotiable invariants of ExtraHorizon (SvelteKit UI ⇄ FastAPI ⇄ OpenAI chat + realtime transcription ⇄ Fish Audio voice; local MediaPipe + expression model + Silero VAD; per-session calibration + emotion engine and voice turn logic). Use this BEFORE changing any message, endpoint, socket event, turn-taking rule, calibration or emotion-engine rule, prompt/persona/context text (what Rika "sees", how she talks), privacy wording or dependency — and whenever you need to know "where does X live", "what does the UI receive", "what is sent to OpenAI / Fish Audio", or when adding a feature (new voice rule, new emotion view, new provider). Also use it when updating EXTERNAL_DEPENDENCIES.md, README or the pitch.
 ---
 
 # ExtraHorizon architecture & contract
 
 ```
-Browser (SvelteKit SPA)                         Python process on the same machine (FastAPI)                 OpenAI
-─────────────────────────                       ──────────────────────────────────────────                 ──────
-getUserMedia → canvas 480px JPEG ──WS /api/vision──► VisionConnection → FaceAnalyzer (MediaPipe, thread pool)
-   (1 frame in flight, ≤12 fps)                        → assess_quality → ConfusionProxy → StateEngine (per session)
-tick/event/marker/snapshot  ◄──────────────────────────┘        │ events + timeline
-chat (fetch + SSE parser) ──POST /api/chat─────────► Session.plan_chat → context.build_messages ──stream──► chat.completions
-   meta/delta/done/error    ◄── SSE ─────────────────── _chat_stream (timeouts, cancel, commit-on-success)
+Browser (SvelteKit SPA)                              Python process on the same machine (FastAPI)                     Cloud
+camera → 480px JPEG ──WS /api/vision──► VisionConnection → FaceAnalyzer (MediaPipe + EmotiEffLib ONNX, aligned + mirrored)
+  tick / calibration / emotion_note ◄─── → quality gates → Session.calib (Calibrator) → Session.emotion (EmotionEngine) → note
+  calibrate / sensitivity ──────────────►
+mic (chosen device) → AudioWorklet PCM16 24 kHz ─WS /api/live─► LiveConnection → VadSegmenter (Silero) → OpenAIRealtimeStt ─────► gpt-live-transcribe
+  vad / stt / heard / turn / audio ◄──── turn logic (filler, speculation, barge-in, stop, merge, echo)
+                                          → TurnRunner → LLM stream ──────────────────────────────────────────► gpt-6-luna
+                                          → Speaker → TtsSplitter → FishSession ──────────────────────────────► Fish drama-3-preview
+typed chat ──POST /api/chat (SSE)──────► same TurnRunner (voice goes to the live socket if open)
 ```
 
-Source of truth for every message: **`docs/CONTRACT.md`** — change it first, then both sides,
-then tests (`backend/tests/test_api.py`, `frontend/src/lib/*.test.js`, `frontend/e2e`).
+Source of truth for every message: **`docs/CONTRACT.md`** — change it first, then both sides, then the tests
+(`backend/tests/test_api.py`, `test_live.py`, `frontend/src/lib/*.test.js`, `frontend/e2e`). Turn-taking rules:
+**`docs/VOICE.md`**. Emotion method and the prompt note: **`docs/EMOTIONS.md`**.
 
 ## Where things live
 
 | Concern | File |
 |---|---|
 | Config / all tunables (env `EH_*`) | `backend/extrahorizon/config.py`, `.env.example` |
-| Adaptation rule (EMA, hold, cooldown, relief) | `backend/extrahorizon/engine.py` (pure, clock injected) |
-| Session state, events, offers, commit/abort, reset | `backend/extrahorizon/sessions.py` |
-| What the LLM receives (strategies, adaptation note) | `backend/extrahorizon/context.py` |
-| OpenAI streaming, error mapping, fallback model, mock | `backend/extrahorizon/llm.py` |
-| HTTP routes, SSE loop, origin/host guards, static UI | `backend/extrahorizon/app.py` |
+| Per-person calibration (baseline, bias correction, blendshape evidence, pose weight, sensitivity presets) | `backend/extrahorizon/emotion/calibration.py` (pure, time injected) |
+| Emotion engine (weighted EMA, floor, stable dominant, unknown, words-only description) | `backend/extrahorizon/emotion/engine.py` (pure, clock injected) |
+| Expression model (ONNX) · face analysis · quality gates · model download | `backend/extrahorizon/emotion/classifier.py` · `vision/analyzer.py` · `vision/quality.py` · `vision/model_fetch.py` |
+| Persona "Rika" (a person on a video call; banned assistant phrases), voice-cue rules, webcam note, reply rules | `backend/extrahorizon/context.py` |
+| Session state, plans (speculative gate, cancel reasons), commit/abort, reset | `backend/extrahorizon/sessions.py` |
+| One turn: LLM → deltas → Speaker (splitter → Fish) → audio frames | `backend/extrahorizon/turns.py` |
+| Voice conversation socket, turn-taking | `backend/extrahorizon/live_ws.py` |
+| Fish client, fillers, STT, VAD, cues, splitter, silence cap | `backend/extrahorizon/voice/*.py` |
+| OpenAI chat streaming, error mapping, fallback model, mock | `backend/extrahorizon/llm.py` |
+| HTTP routes, SSE, origin/host guards, static UI | `backend/extrahorizon/app.py` |
 | Vision socket (latest-frame-wins, single writer) | `backend/extrahorizon/vision_ws.py` |
-| Frame analysis / proxy / model download | `backend/extrahorizon/vision/*.py` |
-| UI state (the only store), camera + socket | `frontend/src/lib/app.svelte.js`, `vision.svelte.js` |
-| Chat streaming client + idle watchdog | `frontend/src/lib/api.js`, `sse.js` |
-| Components (sidebar / chat / vision panel) | `frontend/src/lib/components/*.svelte` |
-| Design tokens (AzIAIBetter material, navy) | `frontend/src/app.css` |
+| UI state (the only store) · camera + calibration/sensitivity · voice + audio + microphone choice | `frontend/src/lib/app.svelte.js` · `vision.svelte.js` · `voice.svelte.js` + `audio.js` (`MicCapture`) |
+| Emotion colours/orders (validated palette) · voice cues in markdown | `frontend/src/lib/emotions.js` · `cues.js` + `markdown.js` |
+| Components | `frontend/src/lib/components/*.svelte` |
 
 ## Invariants (each is covered by a test — keep them green)
 
-1. **Separation**: signal numbers (UI only) → engine decision (event) → abstract instruction text. The note sent to the LLM has no digits, no images, no landmarks, and never claims to know feelings or mentions the camera.
-2. **Unknown ≠ neutral**: missing/ambiguous/poor data resets accumulation and shows "—" with a reason. Two faces never adapt.
-3. **Time, not frames**; one event per episode (disarmed until the signal drops below `rearm_threshold` or a new answer arrives) plus the cooldown; decrease claimed only when measured; a closed socket makes the signal `unknown`, never frozen.
-4. **Per-tab sessions** (sessionStorage UUID); no shared state; reset clears history, events, timeline, cooldown, baseline and cancels a stream.
-5. **Chat never hangs**: every stream ends in `done` or `error` (server timeouts + client idle watchdog); nothing is committed unless `done`; Retry re-sends.
-6. **Vision failure never disables chat** — `sessions.py` imports only `vision/types.py`; OpenCV/NumPy/MediaPipe load lazily per camera session (tested with a broken `cv2`).
-7. **Privacy claims follow the real data path**: "video stays on this device" is shown only when both the page host and the backend's view of the client are loopback. MediaPipe's own usage metrics to Google are disclosed (consent card, privacy card, README); the camera never starts before the consent click and no MediaPipe task is created at server start.
-8. **Simulation is labelled** (SIMULATED chips, striped card, dashed timeline, "not live recognition" in Why-it-adapted) and allowed only in tests / that mode.
-9. **Secrets**: the key lives only in the git-ignored `.env`; hooks in `.githooks/` + `tests/test_secrets.py` block commits/pushes of keys. Never print, log or return the key.
-10. **One LLM integration** (OpenAI). The mock is a labelled test double, not a second provider. Go service / accounts / billing / voice / cloud sync are out of scope (spec §3).
+1. **Words only to the LLM**: the note "[What you see on the learner's webcam right now] …" has no digits, no images, no landmarks; it is added only when exactly one face is clearly in view and calibrated (a simulation is labelled as such inside the note too). The persona treats it as her eyes on a video call: says she can see the learner, mentions the face rarely (the note says "Same as when they last spoke" when unchanged), never talks about estimates/readings/cameras/scores, knows a face is not a feeling and believes a correction; without a note she says she can't see them. The UI labels every reading as an *estimate*.
+1b. **Calibration first**: nothing is reported before the learner's baseline exists (status `calibrating`); a non-neutral class needs baseline-relative facial-action evidence; head pose and talking only lower a frame's weight; adaptation happens only while the face is clearly neutral.
+1c. **A person, not an assistant**: no service phrases ("How can I help you?", "Tell me what you were asking", "I'll answer directly", "As an AI", …) — listed in `context.py`, asserted in `test_context.py`.
+2. **Unknown ≠ neutral**: no/several faces, poor quality, camera off, socket closed, gaps → `unknown`, smoothing restarts, gaps in the timeline, no note. Several faces are never read.
+3. **Time, not frames**: smoothing and the dominant-switch hold are wall-clock based.
+4. **Per-tab sessions**; no shared state; reset clears history, emotion engine, timeline, stops the voice and cancels a turn.
+5. **A turn always ends**: `done` / `interrupted` (partial kept, marked) / `error` / `dropped`; nothing committed on errors, discarded speculation or merged turns; server timeouts + client watchdog.
+6. **Speculation never speaks early**: a speculative plan's text and voice stay behind `plan.gate` until the final transcript confirms it; aborting an unreleased speaker sends no `audio_stop` (the filler and the replacement share the turn number).
+7. **Barge-in is instant and final**: `audio_stop`/`barge_in` → the browser stops at once; frames of stopped turns are never sent again; first cancel reason wins.
+8. **Only speech leaves the machine**: mic audio reaches OpenAI only inside VAD utterances (+pre-roll); camera frames never leave the machine.
+9. **Vision or voice failure never disables chat** — heavy libraries load lazily; each provider failure degrades to text with a clear message.
+10. **Privacy claims follow the real data path** (loopback check for "stays on this device"; MediaPipe usage metrics disclosed; camera and microphone start only after an explicit consent click).
+11. **Simulation is labelled** (SIMULATED / NOT LIVE, striped card, marked spans) and allowed only in that mode / tests.
+12. **Secrets**: keys live only in the git-ignored `.env`; hooks in `.githooks/` + `tests/test_secrets.py` block commits/pushes of keys or their values. Never print, log or return a key; check with `len(...)` only.
 
-## When you add or change a dependency, model, dataset, asset or AI tool
+## When you add or change a dependency, model, dataset, asset, service or AI tool
 
-Update `EXTERNAL_DEPENDENCIES.md` in the same change (name, version, license, what it is used for,
-what data it sees). Hackathon rules require disclosing everything external.
+Update `EXTERNAL_DEPENDENCIES.md` in the same change (name, version, license, what it is used for, what data it
+sees). Hackathon rules require disclosing everything external.

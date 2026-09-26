@@ -2,8 +2,8 @@
 
 * Receiver: stores only the *latest* frame (older pending frames are dropped —
   the pipeline never builds a backlog, latency stays one frame).
-* Processor: analyses frames in the vision thread pool, then ingests the result
-  into the session (proxy → engine) on the event loop.
+* Processor: analyses frames in the vision thread pool (face landmarks + emotion
+  classifier), then ingests the result into the session's emotion engine on the loop.
 * Sender: the single writer of the socket, fed through a bounded queue, so chat
   commits / resets can notify this socket from anywhere without races.
 """
@@ -172,15 +172,18 @@ class VisionConnection:
                 outs = sess.set_sim(False, t, t_ms)
             else:
                 try:
-                    value = float(m.get("value", 0.0))
+                    intensity = float(m.get("intensity", 0.8))
                 except (TypeError, ValueError):
-                    value = 0.0
-                outs = sess.set_sim(True, t, t_ms) + sess.ingest_sim(value, t, t_ms)
+                    intensity = 0.8
+                emotion = str(m.get("emotion") or "neutral")[:20]
+                outs = sess.set_sim(True, t, t_ms) + sess.ingest_sim(emotion, intensity, t, t_ms)
             for out in outs:
                 self.send(out)
         elif kind == "calibrate":
-            sess.recalibrate()
-            self.send({"type": "calibrating"})
+            for out in sess.recalibrate(t, t_ms):
+                self.send(out)
+        elif kind == "sensitivity":
+            self.send({"type": "calibration", "calibration": sess.set_sensitivity(str(m.get("level", ""))[:20])})
         else:
             self.send({"type": "error", "code": "bad_message", "message": f"Unknown message type {kind!r}."})
 
@@ -237,7 +240,7 @@ class VisionConnection:
                 # still acknowledge so the client does not stall; engine sees "unknown"
                 t, t_ms = time.monotonic(), now_ms()
                 for out in self.session.camera_status("vision_unavailable", t, t_ms) or [
-                    {"type": "tick", "seq": seq, "t": t_ms, "vision": None, "engine": None}
+                    {"type": "tick", "seq": seq, "t": t_ms, "vision": None, "emotion": None}
                 ]:
                     out = dict(out)
                     if out.get("type") == "tick":

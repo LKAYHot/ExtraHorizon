@@ -1,6 +1,6 @@
 # ExtraHorizon - one-time setup (Windows PowerShell 5.1+ or PowerShell 7).
 #   .\scripts\setup.ps1
-# Installs backend deps (uv), downloads + verifies the MediaPipe model, installs and
+# Installs backend deps (uv), downloads + verifies the local models (face, expression, voice detection), installs and
 # builds the UI, creates .env from .env.example (never overwrites an existing one) and
 # enables the secret-guard git hooks.
 $ErrorActionPreference = 'Continue'  # native tools print warnings on stderr; exit codes are checked explicitly
@@ -20,9 +20,9 @@ Write-Host '== backend: Python deps (uv sync)' -ForegroundColor Cyan
 Push-Location "$root\backend"
 uv sync
 if ($LASTEXITCODE) { Pop-Location; exit 1 }
-Write-Host '== backend: MediaPipe Face Landmarker model' -ForegroundColor Cyan
+Write-Host '== backend: local models (MediaPipe face, EmotiEffLib expression, Silero VAD)' -ForegroundColor Cyan
 uv run python -m extrahorizon.vision.model_fetch
-if ($LASTEXITCODE) { Write-Host 'Model download failed - vision will be unavailable, chat still works.' -ForegroundColor Yellow }
+if ($LASTEXITCODE) { Write-Host 'Model download failed - vision/voice detection may be unavailable, chat still works. Re-run when online.' -ForegroundColor Yellow }
 Pop-Location
 
 Write-Host '== frontend: npm install + build' -ForegroundColor Cyan
@@ -35,7 +35,7 @@ Pop-Location
 
 if (-not (Test-Path "$root\.env")) {
     Copy-Item "$root\.env.example" "$root\.env"
-    Write-Host 'Created .env - open it and set OPENAI_API_KEY (it stays local; .env is git-ignored).' -ForegroundColor Yellow
+    Write-Host 'Created .env - open it and set OPENAI_API_KEY and FISH_API_KEY (they stay local; .env is git-ignored).' -ForegroundColor Yellow
 }
 if (Test-Path "$root\.git") { git -C $root config core.hooksPath .githooks }
 

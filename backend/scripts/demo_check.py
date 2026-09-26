@@ -1,18 +1,19 @@
-"""End-to-end rehearsal of the demo chain against a RUNNING backend.
+"""End-to-end rehearsal of the demo chain against a RUNNING backend (real providers).
 
-Drives the whole chain exactly as the UI does:
-health → vision socket → "Explain recursion to me." (streamed) → sustained signal
-→ exactly ONE possible_confusion event (cooldown holds) → "Explain differently"
-(adapted answer + strategy metadata) → reset clears everything.
+Drives the chain exactly as the browser does:
+health → vision socket (labelled Demo simulation: a chosen expression drives the same
+emotion engine) → the live prompt note → "Explain recursion to me." over SSE with the
+voice socket open → the note reached the prompt (meta.emotion_context) → her voice for
+that turn streams back (Fish Audio) → optionally a spoken question from a WAV file over
+the microphone path (Silero VAD → OpenAI transcription → filler → answer voice) → reset.
 
-The signal comes from the **labelled Demo simulation input** (the same state engine,
-tagged ``source: simulation``) because a script has no face in front of a camera.
-It proves the engine → context → LLM part, not the camera → proxy part — the live
+The expression comes from the simulation because a script has no face in front of a
+camera: this proves emotion engine → prompt → LLM → voice, not camera → model — the live
 camera must be rehearsed by a person (see docs/TEST_MATRIX.md).
 
     cd backend
-    uv run python scripts/demo_check.py --runs 10
-    uv run python scripts/demo_check.py --base http://127.0.0.1:8765 --question "Explain recursion to me."
+    uv run python scripts/demo_check.py --runs 3
+    uv run python scripts/demo_check.py --speech ../frontend/e2e/.cache/question.wav
 """
 
 from __future__ import annotations
@@ -20,172 +21,188 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import re
 import statistics
+import struct
 import sys
 import time
 import uuid
+import wave
 
 import httpx
+import numpy as np
 from websockets.asyncio.client import connect
 
 
-def shingles(text: str, n: int = 5) -> set[tuple[str, ...]]:
-    words = re.findall(r"[a-z0-9']+", text.lower())
-    return {tuple(words[i : i + n]) for i in range(max(0, len(words) - n + 1))}
+class LiveSocket:
+    """The browser's /api/live connection: collects events and voice frames per turn."""
+
+    def __init__(self, ws) -> None:
+        self.ws = ws
+        self.events: list[tuple[float, dict]] = []
+        self.first_audio: dict[int, float] = {}
+        self.audio_bytes: dict[int, int] = {}
+        self._task = asyncio.create_task(self._read())
+
+    async def _read(self) -> None:
+        async for raw in self.ws:
+            now = time.perf_counter()
+            if isinstance(raw, bytes):
+                turn = struct.unpack(">I", raw[:4])[0]
+                self.first_audio.setdefault(turn, now)
+                self.audio_bytes[turn] = self.audio_bytes.get(turn, 0) + len(raw) - 4
+            else:
+                self.events.append((now, json.loads(raw)))
+
+    def find(self, pred) -> tuple[float, dict] | None:
+        return next(((t, m) for t, m in self.events if pred(m)), None)
+
+    async def wait(self, pred, timeout: float = 30.0) -> tuple[float, dict]:
+        deadline = time.perf_counter() + timeout
+        while time.perf_counter() < deadline:
+            hit = self.find(pred)
+            if hit:
+                return hit
+            await asyncio.sleep(0.02)
+        raise TimeoutError("expected message did not arrive")
+
+    async def close(self) -> None:
+        self._task.cancel()
+        await self.ws.close()
 
 
-def verbatim_overlap(original: str, adapted: str) -> float:
-    """Share of 5-word sequences of the adapted answer copied from the original."""
-    a, b = shingles(original), shingles(adapted)
-    return len(a & b) / len(b) if b else 0.0
+class VisionSim:
+    """Keeps the vision socket open (closing it = no camera = no note) and drives the
+    labelled simulation at 10 Hz in the background."""
+
+    def __init__(self, base_ws: str, sid: str, emotion: str) -> None:
+        self.url = f"{base_ws}/api/vision?session_id={sid}"
+        self.emotion = emotion
+        self.note: dict | None = None
+        self._task: asyncio.Task | None = None
+
+    async def start(self) -> None:
+        self.ws = await connect(self.url)
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        async def reader() -> None:
+            async for raw in self.ws:
+                m = json.loads(raw)
+                if m.get("type") == "emotion_note":
+                    self.note = m["context"]
+
+        rt = asyncio.create_task(reader())
+        try:
+            while True:
+                await self.ws.send(json.dumps({"type": "sim", "enabled": True, "emotion": self.emotion, "intensity": 0.85}))
+                await asyncio.sleep(0.1)
+        finally:
+            rt.cancel()
+
+    async def close(self) -> None:
+        if self._task:
+            self._task.cancel()
+        await self.ws.close()
 
 
-async def sse_chat(client: httpx.AsyncClient, base: str, body: dict) -> dict:
-    out: dict = {"meta": None, "text": "", "done": None, "error": None, "ttft": None}
-    t0 = time.perf_counter()
-    parts: list[str] = []
-    async with client.stream("POST", f"{base}/api/chat", json=body, timeout=90) as r:
-        if r.status_code != 200:
-            out["error"] = {"http": r.status_code, "body": (await r.aread()).decode(errors="replace")[:300]}
-            return out
-        event = None
-        async for line in r.aiter_lines():
-            if line.startswith("event:"):
-                event = line[6:].strip()
-            elif line.startswith("data:"):
-                data = json.loads(line[5:])
-                if event == "meta":
-                    out["meta"] = data
-                elif event == "delta":
-                    if out["ttft"] is None:
-                        out["ttft"] = time.perf_counter() - t0
-                    parts.append(data["text"])
-                elif event == "done":
-                    out["done"] = data
-                elif event == "error":
-                    out["error"] = data
-    out["text"] = "".join(parts)
-    out["total"] = time.perf_counter() - t0
+def load_speech(path: str) -> bytes:
+    with wave.open(path) as w:
+        rate, ch = w.getframerate(), w.getnchannels()
+        x = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float32)
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    y = np.interp(np.arange(0, len(x), rate / 24000), np.arange(len(x)), x)
+    return y.astype("<i2").tobytes()
+
+
+async def one_run(base: str, question: str, speech: bytes | None) -> dict:
+    base_ws = base.replace("http", "ws", 1)
+    sid = str(uuid.uuid4())
+    out: dict = {}
+    async with httpx.AsyncClient(timeout=90) as client:
+        health = (await client.get(f"{base}/api/health?deep=1")).json()
+        out["health"] = {k: health[k] for k in ("llm", "tts", "stt", "vision", "fillers")}
+        live = LiveSocket(await connect(f"{base_ws}/api/live?session_id={sid}", max_size=2**24))
+        await live.wait(lambda m: m["type"] == "hello")
+        await live.ws.send(json.dumps({"type": "voice_out", "on": True}))
+        # the expression (labelled simulation) → the note that will be added to the prompt
+        sim = VisionSim(base_ws, sid, "happiness")
+        await sim.start()
+        await asyncio.sleep(2.5)
+        out["note"] = (sim.note or {}).get("note")
+        # a typed question: text over SSE, voice over the live socket
+        t0 = time.perf_counter()
+        meta = done = None
+        ttft = None
+        async with client.stream("POST", f"{base}/api/chat", json={"session_id": sid, "message": question}) as r:
+            event = None
+            async for line in r.aiter_lines():
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    data = json.loads(line[5:])
+                    if event == "meta":
+                        meta = data
+                    elif event == "delta" and ttft is None:
+                        ttft = time.perf_counter() - t0
+                    elif event in ("done", "error", "interrupted"):
+                        done = (event, data)
+        out["ttft_s"] = ttft
+        out["result"] = done[0] if done else "no terminal event"
+        ctx = (meta or {}).get("emotion_context") or {}
+        out["note_in_prompt"] = bool(ctx.get("available")) and ctx.get("dominant") == "happiness"
+        turn = (meta or {}).get("turn_no")
+        try:
+            await live.wait(lambda m: m["type"] == "audio_end" and m["turn_no"] == turn, 40)
+            out["first_audio_s"] = live.first_audio[turn] - t0
+            out["voice_s"] = live.audio_bytes[turn] / 2 / 44100
+        except (TimeoutError, KeyError):
+            out["first_audio_s"] = None
+        if speech is not None:
+            await live.ws.send(json.dumps({"type": "mic", "on": True}))
+            await asyncio.sleep(0.5)
+            start = time.perf_counter()
+            for i in range(0, len(speech), 1920):  # real time, like a microphone
+                await asyncio.sleep(max(0.0, start + i / 48000 - time.perf_counter()))
+                await live.ws.send(speech[i : i + 1920])
+            t_end, end = await live.wait(lambda m: m["type"] == "vad" and m["speaking"] is False, 10)
+            spoken_turn = end["turn_no"]
+            _, heard = await live.wait(lambda m: m["type"] in ("heard", "stt_ignored"), 10)
+            out["heard"] = heard.get("text")
+            t_answer, _ = await live.wait(
+                lambda m: m["type"] == "audio_begin" and m["kind"] == "answer" and m["turn_no"] == spoken_turn, 20)
+            filler = live.find(lambda m: m["type"] == "filler" and m["turn_no"] == spoken_turn)
+            out["filler"] = filler[1]["text"] if filler else None
+            out["speech_end_to_filler_s"] = (live.first_audio[spoken_turn] - t_end) if filler else None
+            out["speech_end_to_answer_voice_s"] = t_answer - t_end
+        await client.post(f"{base}/api/session/reset", json={"session_id": sid})
+        await sim.close()
+        await live.close()
     return out
 
 
-async def run_once(base: str, question: str, idx: int) -> dict:
-    sid = str(uuid.uuid4())
-    ws_url = base.replace("http", "ws", 1) + f"/api/vision?session_id={sid}"
-    res: dict = {"run": idx, "ok": False}
-    async with httpx.AsyncClient() as client, connect(ws_url, max_size=2**22) as ws:
-        hello = json.loads(await ws.recv())
-        assert hello["type"] == "hello", hello
-        events: list[dict] = []
-
-        async def reader() -> None:
-            async for raw in ws:
-                m = json.loads(raw)
-                if m["type"] == "event":
-                    events.append(m["event"])
-
-        reader_task = asyncio.create_task(reader())
-        try:
-            # 1) normal streamed answer
-            r1 = await sse_chat(client, base, {"session_id": sid, "message": question})
-            if not r1["done"]:
-                res["fail"] = f"normal answer failed: {r1['error']}"
-                return res
-            res["ttft_normal"] = r1["ttft"]
-            res["total_normal"] = r1["total"]
-            if r1["meta"]["adaptation"] is not None:
-                res["fail"] = "normal answer carried an adaptation"
-                return res
-
-            # 2) sustained signal (labelled simulation) → exactly one event
-            t_sig = time.perf_counter()
-            while time.perf_counter() - t_sig < 4.0:
-                await ws.send(json.dumps({"type": "sim", "enabled": True, "value": 0.9}))
-                await asyncio.sleep(0.1)
-                if any(e["kind"] == "possible_confusion" for e in events):
-                    break
-            conf = [e for e in events if e["kind"] == "possible_confusion"]
-            if not conf:
-                res["fail"] = "no possible_confusion event within 4 s"
-                return res
-            res["detect_s"] = time.perf_counter() - t_sig
-            for _ in range(10):  # keep the signal high: cooldown must suppress repeats
-                await ws.send(json.dumps({"type": "sim", "enabled": True, "value": 0.9}))
-                await asyncio.sleep(0.1)
-            res["events"] = sum(1 for e in events if e["kind"] == "possible_confusion")
-            ev = conf[0]
-            if ev["answer_id"] != r1["done"]["assistant_message_id"] or ev["status"] != "offered":
-                res["fail"] = f"event not attached/offered: {ev}"
-                return res
-            await ws.send(json.dumps({"type": "sim", "enabled": True, "value": 0.1}))
-
-            # 3) explain differently
-            r2 = await sse_chat(client, base, {"session_id": sid, "mode": "explain_differently", "event_id": ev["id"]})
-            if not r2["done"]:
-                res["fail"] = f"adapted answer failed: {r2['error']}"
-                return res
-            adapt = r2["meta"]["adaptation"]
-            res["ttft_adapted"] = r2["ttft"]
-            res["strategy"] = adapt["strategy"]["id"]
-            res["overlap"] = verbatim_overlap(r1["text"], r2["text"])
-            instr = adapt["instruction"]
-            if re.search(r"\d", instr) or "%" in instr:
-                res["fail"] = "instruction contains numbers"
-                return res
-            leaks = [w for w in ("camera", "webcam", "facial", "detected your", "you look", "you seem") if w in r2["text"].lower()]
-            res["leaks"] = leaks
-
-            # 4) reset clears everything
-            rr = (await client.post(f"{base}/api/session/reset", json={"session_id": sid})).json()
-            st = (await client.get(f"{base}/api/session/{sid}/state")).json()
-            if not rr.get("ok") or st["messages"] or st["events"] or st["timeline"]["samples"] or st["timeline"]["markers"]:
-                res["fail"] = "reset left state behind"
-                return res
-            res["ok"] = res["events"] == 1 and not leaks
-            if res["events"] != 1:
-                res["fail"] = f"expected 1 event, got {res['events']}"
-            elif leaks:
-                res["fail"] = f"adapted answer mentions: {leaks}"
-            return res
-        finally:
-            reader_task.cancel()
-
-
 async def main() -> int:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]  # cp1251 consoles
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--base", default="http://127.0.0.1:8765")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--question", default="Explain recursion to me.")
-    args = ap.parse_args()
-
-    async with httpx.AsyncClient() as c:
-        h = (await c.get(f"{args.base}/api/health", params={"deep": 1}, timeout=15)).json()
-    print(f"backend {h['version']} boot={h['boot_id']}  LLM {h['llm']['provider']}/{h['llm']['model']} "
-          f"reachable={h['llm']['reachable']}  vision={h['vision']['available']}")
+    ap.add_argument("--speech", help="optional WAV with a spoken question (mic path)")
+    a = ap.parse_args()
+    speech = load_speech(a.speech) if a.speech else None
     results = []
-    for i in range(1, args.runs + 1):
-        try:
-            r = await run_once(args.base, args.question, i)
-        except Exception as e:  # noqa: BLE001
-            r = {"run": i, "ok": False, "fail": f"{type(e).__name__}: {e}"}
+    for i in range(a.runs):
+        r = await one_run(a.base, a.question, speech)
         results.append(r)
-        if r["ok"]:
-            print(
-                f"run {i:2d} PASS  ttft {r['ttft_normal']:.2f}s/{r['ttft_adapted']:.2f}s  "
-                f"event after {r['detect_s']:.2f}s  events={r['events']}  strategy={r['strategy']}  "
-                f"verbatim overlap {r['overlap']:.0%}"
-            )
-        else:
-            print(f"run {i:2d} FAIL  {r.get('fail')}")
-    ok = [r for r in results if r["ok"]]
-    print(f"\n{len(ok)}/{len(results)} runs passed")
-    if ok:
-        med = lambda k: statistics.median(r[k] for r in ok)  # noqa: E731
-        print(f"median TTFT normal {med('ttft_normal'):.2f}s, adapted {med('ttft_adapted'):.2f}s, "
-              f"event latency {med('detect_s'):.2f}s, verbatim overlap {med('overlap'):.0%}")
-    return 0 if len(ok) == len(results) else 1
+        print(f"run {i + 1}: {json.dumps({k: v for k, v in r.items() if k != 'health'}, ensure_ascii=False)}")
+    h = results[0]["health"]
+    print("\nhealth:", {k: (v.get("state") or v.get("available") or v.get("configured")) if isinstance(v, dict) else v for k, v in h.items()})
+    ok = all(r["result"] == "done" and r["note_in_prompt"] and r.get("first_audio_s") for r in results)
+    ttfts = [r["ttft_s"] for r in results if r["ttft_s"]]
+    firsts = [r["first_audio_s"] for r in results if r.get("first_audio_s")]
+    if ttfts:
+        print(f"first token: median {statistics.median(ttfts):.2f} s · first voice: median {statistics.median(firsts):.2f} s" if firsts else "")
+    print("PASS" if ok else "FAIL")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

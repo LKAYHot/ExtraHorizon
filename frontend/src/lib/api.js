@@ -23,6 +23,15 @@ export async function getState(sessionId) {
   return jsonOrThrow(res)
 }
 
+export async function interruptSession(sessionId) {
+  const res = await fetch('/api/session/interrupt', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ session_id: sessionId }),
+  })
+  return jsonOrThrow(res)
+}
+
 export async function resetSession(sessionId) {
   const res = await fetch('/api/session/reset', {
     method: 'POST',
@@ -34,11 +43,11 @@ export async function resetSession(sessionId) {
 
 /**
  * POST /api/chat and consume the SSE stream.
- * Guarantees exactly one terminal callback (onDone or onError): network failures,
+ * Guarantees exactly one terminal callback (onDone, onInterrupted or onError): network failures,
  * HTTP errors, a missing terminal event and a silent connection (idle watchdog)
  * all become onError — the UI can never stay in "thinking".
  */
-export async function streamChat(body, { onMeta, onDelta, onDone, onError, signal, idleMs = 25000 } = {}) {
+export async function streamChat(body, { onMeta, onDelta, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
   let finished = false
   const finish = (fn, arg) => {
     if (finished) return
@@ -92,6 +101,7 @@ export async function streamChat(body, { onMeta, onDelta, onDone, onError, signa
         if (ev.event === 'meta') onMeta?.(data)
         else if (ev.event === 'delta') onDelta?.(data.text ?? '')
         else if (ev.event === 'done') finish(onDone, data)
+        else if (ev.event === 'interrupted') finish(onInterrupted ?? onDone, data)
         else if (ev.event === 'error') finish(onError, data)
       }
     }
