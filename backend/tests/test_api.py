@@ -85,7 +85,7 @@ def test_health_reports_every_component():
     assert h["llm"]["configured"] is True and h["llm"]["provider"] == "fake"
     assert h["vision"]["available"] is False
     assert h["tts"]["provider"] == "mock" and h["stt"]["provider"] == "mock"
-    assert h["emotion"]["sensitivity"] == "balanced" and h["emotion"]["switch_hold_s"] == 1.2
+    assert h["emotion"]["sensitivity"] == "balanced" and h["emotion"]["switch_hold_s"] == 1.0
 
 
 # ---------------------------------------------------------------------- streaming chat

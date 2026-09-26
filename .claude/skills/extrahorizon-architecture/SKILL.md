@@ -7,7 +7,7 @@ description: Architecture map, API/WebSocket contract and non-negotiable invaria
 
 ```
 Browser (SvelteKit SPA)                              Python process on the same machine (FastAPI)                     Cloud
-camera → 480px JPEG ──WS /api/vision──► VisionConnection → FaceAnalyzer (MediaPipe + EmotiEffLib ONNX, aligned + mirrored)
+camera → 480px JPEG ──WS /api/vision──► VisionConnection → FaceAnalyzer (MediaPipe + EmotiEffLib ONNX, upright square crop + mirror)
   tick / calibration / emotion_note ◄─── → quality gates → Session.calib (Calibrator) → Session.emotion (EmotionEngine) → note
   calibrate / sensitivity ──────────────►
 mic (chosen device) → AudioWorklet PCM16 24 kHz ─WS /api/live─► LiveConnection → VadSegmenter (Silero) → OpenAIRealtimeStt ─────► gpt-live-transcribe
@@ -26,7 +26,7 @@ Source of truth for every message: **`docs/CONTRACT.md`** — change it first, t
 | Concern | File |
 |---|---|
 | Config / all tunables (env `EH_*`) | `backend/extrahorizon/config.py`, `.env.example` |
-| Per-person calibration (baseline, bias correction, blendshape evidence, pose weight, sensitivity presets) | `backend/extrahorizon/emotion/calibration.py` (pure, time injected) |
+| Per-person calibration (baseline, neutral-vs-expression relative to the relaxed face, which expression, hallmark facial actions, pose/talk, sensitivity presets) | `backend/extrahorizon/emotion/calibration.py` (pure, time injected) |
 | Emotion engine (weighted EMA, floor, stable dominant, unknown, words-only description) | `backend/extrahorizon/emotion/engine.py` (pure, clock injected) |
 | Expression model (ONNX) · face analysis · quality gates · model download | `backend/extrahorizon/emotion/classifier.py` · `vision/analyzer.py` · `vision/quality.py` · `vision/model_fetch.py` |
 | Persona "Rika" (a person on a video call; banned assistant phrases), voice-cue rules, webcam note, reply rules | `backend/extrahorizon/context.py` |
@@ -44,7 +44,7 @@ Source of truth for every message: **`docs/CONTRACT.md`** — change it first, t
 ## Invariants (each is covered by a test — keep them green)
 
 1. **Words only to the LLM**: the note "[What you see on the learner's webcam right now] …" has no digits, no images, no landmarks; it is added only when exactly one face is clearly in view and calibrated (a simulation is labelled as such inside the note too). The persona treats it as her eyes on a video call: says she can see the learner, mentions the face rarely (the note says "Same as when they last spoke" when unchanged), never talks about estimates/readings/cameras/scores, knows a face is not a feeling and believes a correction; without a note she says she can't see them. The UI labels every reading as an *estimate*.
-1b. **Calibration first**: nothing is reported before the learner's baseline exists (status `calibrating`); a non-neutral class needs baseline-relative facial-action evidence; head pose and talking only lower a frame's weight; adaptation happens only while the face is clearly neutral.
+1b. **Calibration first, relative — never erase an expression**: nothing is reported before the learner's baseline exists (status `calibrating`); the relaxed face reads neutral (`p_ref`); *whether* the face shows an expression is measured against the relaxed face, *which* one comes from how the face reads now (classes that gained on neutral). Blendshape hallmarks and pose/talk bonuses only nudge — they never move a clear expression into neutral (that erased a real learner's anger once: docs/EMOTIONS.md). Adaptation happens only while the face is clearly neutral.
 1c. **A person, not an assistant**: no service phrases ("How can I help you?", "Tell me what you were asking", "I'll answer directly", "As an AI", …) — listed in `context.py`, asserted in `test_context.py`.
 2. **Unknown ≠ neutral**: no/several faces, poor quality, camera off, socket closed, gaps → `unknown`, smoothing restarts, gaps in the timeline, no note. Several faces are never read.
 3. **Time, not frames**: smoothing and the dominant-switch hold are wall-clock based.

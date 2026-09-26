@@ -37,7 +37,7 @@ in the demo build FastAPI serves the UI and the API from one origin.
   "status": "ok", "boot_id": "b1c9…", "version": "0.2.0", "persona": "Rika",
   "llm":    {"provider": "openai", "model": "gpt-6-luna", "configured": true, "reachable": null, "last_error": null},
   "vision": {"available": true, "reason": null, "model": "face_landmarker.task", "emotion_model": "enet_b0_8_va_mtl.onnx"},
-  "emotion": {"sensitivity": "balanced", "alpha": 0.2, "reference_fps": 10.0, "switch_hold_s": 1.2,
+  "emotion": {"sensitivity": "balanced", "alpha": 0.2, "reference_fps": 10.0, "switch_hold_s": 1.0,
               "switch_margin": 0.12, "min_prob": 0.42, "calibration_s": 2.5},   // server defaults (EH_EMOTION_*)
   "tts":    {"provider": "fish", "model": "drama-3-preview", "voice": "c5d8…", "configured": true,
              "state": "ok|degraded|down|off", "last_error": null, "warm": 1},
@@ -168,7 +168,7 @@ cuts the older turn; frames of a stopped or older turn are dropped; `barge_in` s
 ## Emotion engine (single place that decides the expression)
 
 ```
-input      : 8 class probabilities + logits + valence/arousal per frame (camera: face aligned upright, averaged
+input      : 8 class probabilities + logits + valence/arousal per frame (camera: upright square face crop, averaged
              with its mirror image) + 52 blendshapes + head pose; or per tick (labelled simulation, no calibration)
 unknown    : no face | >1 face | small face | head turned | too dark/bright | bad frame | no estimate
              | camera off/paused | vision socket closed | gap > max_gap_s (1 s)
@@ -176,19 +176,28 @@ unknown    : no face | >1 face | small face | head turned | too dark/bright | ba
 calibrate  : per session, the first ~2.5 s (≥ 15 frames) of a relaxed face → baseline (medians of logits, VA,
              blendshapes, pose); frames while the learner talks / jaw open / head turned are skipped (until 8 s);
              status "calibrating" meanwhile; {"type":"calibrate"} or 90 s without a face → learn again
-correct    : z' = z − 0.9·clip(z_base − z_ref, ±6)   (z_ref = a typical relaxed face, neutral ≈ 0.7)
-evidence   : every non-neutral class needs its baseline-relative facial actions (FACS-style blendshape deltas,
-             thresholds × the sensitivity scale); missing evidence moves its probability mass to neutral
+gain       : g_k = (z_k − z_neutral) − (zb_k − zb_neutral)   per class, since the relaxed face (log-odds)
+neutral    : P(neutral) = σ(m_rest − Σ_k p_k·max(0, g_k) + pose bonus + talk bonus)
+             m_rest = logit(p_ref) (+ half of the relaxed face's extra neutrality, if any); p_k = the raw probabilities;
+             pose bonus 0.1 per degree of pitch beyond 5° / 0.06 per degree of yaw beyond 8°, ≤ 1; talk bonus 0.5
+which      : the other 1 − P(neutral) is shared by p_k · σ((g_k − 0.5)/0.5) · hallmark_k — the face as it reads now,
+             among classes that gained on neutral; hallmark_k (0.35/0.5 … 1) = its FACS-style facial actions relative
+             to the relaxed face (disgust: upper lip / nose; happiness: smile; surprise: brows / eyes / jaw; …;
+             anger: none) — it only moves probability between expressions, never into neutral
+va         : v' = v − P(neutral)·(v_base − 0), a' = a − P(neutral)·(a_base + 0.1)
 weight     : head pose vs the calibration pose (1 within ±6° pitch / ±8° yaw → 0.1 at ~24° / 30°),
              × 0.5 while the learner talks; the smoothing step is scaled by it
-adapt      : the baseline follows drift (τ 60 s) only while the face is clearly relaxed
+adapt      : the baseline follows drift (τ 60 s) only while the classifier reads the face like the relaxed face
+             (intensity < 0.3, near the calibration pose, silent), at most 1 log-odds per class / 0.25 per blendshape /
+             12° / 0.3 VA away from the calibrated face; frames with non-finite model output never reach it
 smooth     : per class EMA, time-based: a = (1 − (1 − α)^(Δt·reference_fps)) · weight
 dominant   : a non-neutral expression needs ≥ min_prob; a new leader must lead for ≥ switch_hold_s by
              ≥ switch_margin; a faded expression returns to neutral
-presets    : calm       α 0.15, hold 1.6 s, margin 0.15, min_prob 0.50, evidence × 1.35
-             balanced   α 0.20, hold 1.2 s, margin 0.12, min_prob 0.42, evidence × 1.00   (default)
-             expressive α 0.30, hold 0.8 s, margin 0.08, min_prob 0.32, evidence × 0.75
+presets    : calm       p_ref 0.95, α 0.15, hold 1.6 s, margin 0.15, min_prob 0.50
+             balanced   p_ref 0.90, α 0.20, hold 1.0 s, margin 0.12, min_prob 0.42   (default)
+             expressive p_ref 0.85, α 0.30, hold 0.8 s, margin 0.08, min_prob 0.32
 note       : words only, phrased as her own view on the call — "[What you see on the learner's webcam right now]
-             The learner looks mostly annoyed. Visible right now: frowning, …" (strength: clearly/mostly/somewhat;
-             mood: positive/neutral/negative + energy; the previous expression and roughly when) — no digits
+             The learner looks clearly angry. Visible right now: baring teeth. …" (strength: clearly/mostly/somewhat;
+             visible actions only if they fit the reported expression, plus head pose; mood: positive/neutral/negative +
+             energy; the previous expression and roughly when) — no digits
 ```

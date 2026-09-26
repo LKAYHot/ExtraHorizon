@@ -5,7 +5,7 @@ anime girl with an expert's rigour) answers **out loud** in an expressive Fish A
 fills the thinking gap with a natural "Hmm…", stops the moment you talk over her, and lets you
 pause mid-sentence without cutting you off. A **local** camera pipeline first learns **your** relaxed
 face (a 2.5 s calibration), then estimates your **facial expression** relative to it (8 emotions +
-valence/arousal, backed by visible facial actions), visualises it live, and gives her a short, words-only
+valence/arousal), visualises it live, and gives her a short, words-only
 description — her "eyes" on the call — so she adapts her tone and pacing like a person would.
 
 > Key chain: **mic → local voice detection → live transcript → LLM (+ expression note) → voice cues → Fish voice → you**,
@@ -63,7 +63,7 @@ chosen expression — labelled **SIMULATED** everywhere. Full script, fallbacks 
 
 ```
 Browser (SvelteKit SPA)                       Python process, same machine (FastAPI)                   Cloud
-camera → 480px JPEG ─WS /api/vision─▶ MediaPipe face → quality gates → EmotiEffLib (ONNX, aligned + mirrored)
+camera → 480px JPEG ─WS /api/vision─▶ MediaPipe face → quality gates → EmotiEffLib (ONNX, upright square crop + mirror)
                   ◀── tick / emotion_note ──  → calibration (baseline · facial actions · pose) → engine ─┐
 mic → AudioWorklet PCM16 24 kHz ─WS /api/live─▶ Silero VAD → speech only ──────────────────────────┼─▶ OpenAI gpt-live-transcribe
                   ◀── vad / stt / heard ────   turn logic: filler · speculation · barge-in ·     │
@@ -136,6 +136,7 @@ Every threshold and timing is an environment variable (`EH_*`) with defaults in
 | "Vision unavailable" | camera permission / another app using the camera / model download failed (`uv run python -m extrahorizon.vision.model_fetch`) — chat and voice keep working |
 | Expression stays *Unknown* | one face, well lit, facing the screen, not too far away |
 | Reads *Angry* / *Unimpressed* while you are relaxed | **Recalibrate** with a relaxed face (it learns *your* neutral); **Calm** needs clearer expressions |
+| A clear expression stays *Neutral* | was the face relaxed during calibration? **Recalibrate**; **Expressive** reacts to subtler expressions |
 | Stuck on *Calibrating…* | look at the screen with a relaxed face and stay quiet ~3 s (talking and a turned head are skipped) |
 | Port 8765 busy | an old backend is still running — stop it (`Get-NetTCPConnection -LocalPort 8765`) |
 | "UI is not built yet" page | `cd frontend && npm run build`, restart the backend |

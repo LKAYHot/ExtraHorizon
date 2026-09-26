@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..vision.types import EMOTIONS
+from .calibration import actions_for
 
 OK = "ok"
 UNKNOWN = "unknown"
@@ -304,8 +305,9 @@ class EmotionEngine:
         if second and second[1] >= 0.2 and second[0] != "neutral":
             parts.append(f", with a bit of {NOUNS[second[0]]}")
         text = "".join(parts) + "."
-        if self._actions:
-            text += f" Visible right now: {'; '.join(self._actions)}."
+        visible = actions_for(self._actions, main)  # only what fits the expression it reports
+        if visible:
+            text += f" Visible right now: {'; '.join(visible)}."
         mood = []
         if st.valence is not None:
             mood.append("positive" if st.valence > 0.25 else "negative" if st.valence < -0.25 else "neutral")

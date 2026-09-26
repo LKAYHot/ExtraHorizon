@@ -19,8 +19,8 @@
 ┌────────────────────────────── Python process (FastAPI + uvicorn) ────────────────────────────────┐
 │ OriginGuard + TrustedHost (no cross-site driving of the tutor, camera or microphone sockets)       │
 │ VisionConnection: latest-frame-wins → FaceAnalyzer (MediaPipe + EmotiEffLib ONNX, thread pool;    │
-│   face aligned upright + mirror averaged) → quality gates → Session.calib (Calibrator: baseline,    │
-│   bias correction, blendshape evidence, pose weight) → Session.emotion (EmotionEngine)             │
+│   upright square crop + mirror averaged) → quality gates → Session.calib (Calibrator: baseline,    │
+│   neutral vs expression relative to it, which expression, hallmarks, pose) → Session.emotion        │
 │   → tick / calibration / emotion_note / marker                                                     │
 │ LiveConnection: VadSegmenter (Silero ONNX) → utterances → OpenAIRealtimeStt (speech only)          │
 │   → turn logic: FillerBank · speculative ChatPlan (gated) · confirm/replace · barge-in ·           │
@@ -43,10 +43,11 @@
    (MediaPipe ≈7–15 ms + expression model ≈10 ms for the aligned crop and its mirror), gates quality, and answers
    with a `tick`. Frames are never queued, stored or forwarded.
 2. **Calibration.** Per session the first ~2.5 s of a relaxed face become the learner's baseline (status
-   `calibrating` meanwhile). Every later frame is read relative to it: logits re-centred, each non-neutral class
-   backed by baseline-relative facial actions (blendshapes), weighted down when the head moves away from the
-   calibration pose or the learner is talking. Recalibrate / sensitivity arrive over the same socket
-   (see [EMOTIONS.md](EMOTIONS.md), [CONTRACT.md](CONTRACT.md)).
+   `calibrating` meanwhile). Every later frame is read relative to it: *whether* the face shows an expression from
+   how far the classes it shows now have gained on neutral since the relaxed face, *which* expression from how the
+   face reads now (nudged by hallmark facial actions); frames far from the calibration pose or while the learner
+   talks count less. Recalibrate / sensitivity arrive over the same socket (see [EMOTIONS.md](EMOTIONS.md),
+   [CONTRACT.md](CONTRACT.md)).
 3. **Expression → prompt.** The engine keeps a smoothed distribution and a stable dominant expression; `describe()`
    turns it into words (+ visible facial actions). Each question snapshots it into `emotion_context`; its `note`
    is added as a system message phrased as what she sees on the call ("unchanged" when the learner's face is the

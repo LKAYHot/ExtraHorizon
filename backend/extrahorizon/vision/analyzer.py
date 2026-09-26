@@ -112,7 +112,7 @@ class FaceAnalyzer:
             if self._emotion is not None:
                 lms = res.face_landmarks[0]
                 pts = np.array([[p.x * fw, p.y * fh] for p in lms], dtype=np.float64)
-                crop = self._emotion.crop_aligned(bgr, pts) if len(pts) >= 455 else None
+                crop = self._emotion.crop_aligned(bgr, pts, self._emotion.size) if len(pts) >= 455 else None
                 if crop is None:
                     crop = self._emotion.crop(bgr, boxes[0])
                 if crop is not None:

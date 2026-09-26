@@ -53,7 +53,8 @@ def main() -> int:
     if a.csv:
         f = open(a.csv, "w", newline="", encoding="utf-8")  # noqa: SIM115
         writer = csv.writer(f)
-        writer.writerow(["t", "faces", "quality", "reason", *EMOTIONS, "valence", "arousal", "dominant", "proc_ms"])
+        writer.writerow(["t", "faces", "quality", "reason", *EMOTIONS, "valence", "arousal", "yaw", "pitch",
+                         *[f"cal_{k}" for k in EMOTIONS], "cal_margin", "weight", "dominant", "proc_ms"])
     t0 = time.monotonic()
     last_print = 0.0
     try:
@@ -79,14 +80,18 @@ def main() -> int:
             state, _ = engine.update(obs)
             if writer:
                 probs = em.probs if em else [None] * len(EMOTIONS)
+                cal = [round(x, 4) for x in corr.probs] if corr else [None] * len(EMOTIONS)
                 writer.writerow([round(t - t0, 3), r.faces, status, reason, *probs,
-                                 em.valence if em else None, em.arousal if em else None, state.dominant, round(r.proc_ms, 1)])
+                                 em.valence if em else None, em.arousal if em else None,
+                                 *(r.pose[:2] if r.pose else (None, None)), *cal,
+                                 round(corr.margin, 3) if corr else None, round(corr.weight, 2) if corr else None,
+                                 state.dominant, round(r.proc_ms, 1)])
             if t - last_print > 0.5:
                 last_print = t
                 top = max(zip(EMOTIONS, em.probs), key=lambda kv: kv[1]) if em else ("-", 0.0)
                 va = f"v {state.valence:+.2f} a {state.arousal:+.2f}" if state.valence is not None else ""
                 cal = "calibrating %d%%" % round(calib.progress * 100) if not calib.ready else "calibrated"
-                extra = f"w {corr.weight:.2f} {list(corr.actions)}" if corr else ""
+                extra = f"neutral log-odds {corr.margin:+.1f} w {corr.weight:.2f} {list(corr.actions)}" if corr else ""
                 print(f"{t - t0:5.1f}s faces={r.faces} {status:7s} {reason or '':16s} raw={top[0]}:{top[1]:.2f} {cal:15s} "
                       f"dominant={state.dominant or 'unknown':10s} {va} {extra} {r.proc_ms:.0f} ms")
     finally:
