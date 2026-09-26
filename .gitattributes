@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# shell scripts and git hooks must keep LF endings (CRLF breaks sh / Git Bash)
+*.sh text eol=lf
+.githooks/* text eol=lf
+# PowerShell is happiest with CRLF on Windows
+*.ps1 text eol=crlf

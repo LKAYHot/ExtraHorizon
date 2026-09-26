@@ -1,0 +1,44 @@
+# ---------------------------------------------------------------- secrets
+# Real keys live ONLY in .env (never committed). Template: .env.example
+.env
+.env.*
+*.env
+!.env.example
+
+# ---------------------------------------------------------------- python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------- node / frontend
+node_modules/
+frontend/build/
+frontend/.svelte-kit/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+
+# ---------------------------------------------------------------- downloaded models / runtime data
+backend/models/*.task
+backend/models/*.tflite
+*.log
+logs/
+tmp/
+
+# ---------------------------------------------------------------- editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# test fixtures downloaded at test time
+backend/tests/.cache/
+frontend/e2e/.cache/
