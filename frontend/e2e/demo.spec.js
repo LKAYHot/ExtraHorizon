@@ -88,3 +88,18 @@ test('a duplicated tab gets its own session instead of sharing one', async ({ pa
   await expect(dup.getByTestId('user-message')).toHaveCount(0) // not the first tab's conversation
   await expect(page.getByTestId('user-message')).toHaveText('Explain recursion to me.') // first tab untouched
 })
+
+test('interruptions can be turned off: she always finishes, the hints say so, and the choice is remembered', async ({ page }) => {
+  await page.goto('/')
+  const persona = page.getByTestId('persona')
+  await expect(persona).toContainText('can be interrupted any time')
+  const sw = page.getByTestId('allow-interrupt')
+  await expect(sw).toBeChecked()
+  await sw.uncheck()
+  await expect(persona).toContainText('always finishes what she is saying')
+  await page.reload()
+  await expect(page.getByTestId('allow-interrupt')).not.toBeChecked() // remembered by this browser
+  await expect(page.getByTestId('persona')).toContainText('always finishes what she is saying')
+  await page.getByTestId('allow-interrupt').check()
+  await expect(page.getByTestId('persona')).toContainText('can be interrupted any time')
+})

@@ -5,6 +5,7 @@ Client → server
   {"type":"mic","on":true|false}          voice mode on/off (connects/closes speech-to-text)
   {"type":"voice_out","on":true|false}    speak answers (Fish) or text only
   {"type":"playback","playing":bool}      the browser is (not) playing tutor audio
+  {"type":"interruptions","on":bool}      may talking over her interrupt her? (never beyond EH_BARGE_IN)
   {"type":"interrupt"}                    stop button
   {"type":"ping","t":…}
 
@@ -20,6 +21,8 @@ Server → client
   {"type":"audio_begin","turn_no":t,"kind":"filler|answer","sample_rate":44100}
   binary        4-byte big-endian turn_no + PCM16LE mono audio of that turn
   {"type":"audio_end","turn_no":t}  {"type":"audio_stop","turn_no":t}  {"type":"barge_in","by":"voice|button"}
+  {"type":"interruptions","on":bool}      the setting in effect
+  {"type":"held"}                        the learner spoke during her turn with interruptions off: she goes on
   {"type":"stt_error"|"tts_error"|"error", …}
 
 A spoken question: VAD start → audio to STT (with pre-roll) → VAD end → commit. At that
@@ -35,6 +38,9 @@ Turn-taking rules
   the partial answer is kept (marked interrupted). A bare "stop" / "wait" / "стоп" after a
   barge-in only stops her; it does not start a new answer.
 * A transcript that repeats what she was just saying is her own voice (echo): ignored.
+* Interruptions off (the learner's choice, ``{"type":"interruptions","on":false}``): from the end of their question
+  until her answer is over, talking neither stops her nor becomes a question — it is not transcribed at all and a
+  ``held`` tells the browser; continuing their own paused sentence still joins it, and the Stop button still stops her.
 """
 
 from __future__ import annotations
@@ -174,6 +180,7 @@ class LiveConnection:
         self.boot_id = boot_id
         self.out: asyncio.Queue[tuple[str, Any] | None] = asyncio.Queue(maxsize=4000)
         self.voice_out = True
+        self.interruptions = bool(settings.barge_in)  # talking over her stops her (the browser may turn it off)
         self.client_playing = False
         self.last_played_at = 0.0
         self.mic_on = False
@@ -318,6 +325,9 @@ class LiveConnection:
             if self.client_playing and not playing:
                 self.last_played_at = time.monotonic()
             self.client_playing = playing
+        elif kind == "interruptions":
+            self.interruptions = bool(m.get("on")) and bool(self.s.barge_in)
+            self.send({"type": "interruptions", "on": self.interruptions})
         elif kind == "interrupt":
             self.interrupt("button")
         elif kind == "ping":
@@ -450,17 +460,24 @@ class LiveConnection:
 
     async def _utt_start(self, preroll: bytes) -> None:
         now = time.monotonic()
+        prev = self._last
+        continues = prev is not None and self._continues(prev, now)
+        if not continues and not self.interruptions and (self.session.assistant_active or self.client_playing
+                                                         or self.session.writing_silently):
+            # her turn (also while she writes a report silently), and she may not be interrupted: this speech is
+            # not an utterance at all — nothing of it is transcribed or answered
+            self.send({"type": "held"})
+            return
         self._utt_n += 1
         u = Utterance(self._utt_n, now)
         audible = self.client_playing or self.session.speaker_audible or now - self.last_played_at < 2.0
         if audible:
             u.echo_ref = self.session.recent_assistant_text()
-        prev = self._last
         u.during_report = self.session.writing_silently and not self.client_playing
-        if prev is not None and self._continues(prev, now):
+        if continues:
             u.prefix = prev
-            prev.merged = True
-            self._drop(prev, "merged")
+            prev.merged = True  # type: ignore[union-attr]
+            self._drop(prev, "merged")  # type: ignore[arg-type]
         elif self.session.assistant_active or self.client_playing:
             u.barge = self.interrupt("voice")
         self._prune(now)

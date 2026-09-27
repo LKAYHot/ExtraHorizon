@@ -35,6 +35,7 @@ mic ─ getUserMedia (the chosen device, echo cancellation, noise suppression, A
 | The transcript repeats what she was just saying (≥60 % of the words) | ignored as **echo** (and no speculative LLM call is made on it) | her voice leaking from the speakers |
 | No transcript within 3 s | the live transcript is used | never hang on a lost event |
 | Stop button / Esc | same as barge-in (server-side interrupt, audio stopped locally at once); a question still waiting for its transcript is cancelled too — Stop means stop | |
+| **Interruptions off** (sidebar: *Let me interrupt her*; remembered by the browser) | from the end of your question until her answer is over — thinking, speaking, writing a report silently — talking **neither stops her nor becomes a question**: that speech is not an utterance, nothing of it is transcribed, and the voice panel says "she finishes first"; a typed question waits too. Continuing your own paused sentence still joins it; **Stop / Esc still stops her** | a noisy room or a stage demo: other voices must not cut her off |
 | A typed question while the socket is open | answered in text (SSE) **and** spoken on the voice socket | one voice for everything |
 
 ## Speaking: LLM text → Fish Audio
@@ -75,7 +76,8 @@ recorded speech in real time). They depend on network and provider load.
 ## Tuning
 
 `EH_VAD_END_SILENCE_MS` (faster vs. fewer cut-offs), `EH_BARGE_IN_THRESHOLD` / `EH_BARGE_IN_MIN_MS`
-(interruptibility vs. echo), `EH_VOICE_MERGE_WINDOW_S`, `EH_FILLER_MIN_UTTERANCE_MS`, `EH_STT_NOISE_REDUCTION`
+(interruptibility vs. echo), `EH_BARGE_IN=false` (nobody can interrupt her on this server — the sidebar switch is
+then off and disabled), `EH_VOICE_MERGE_WINDOW_S`, `EH_FILLER_MIN_UTTERANCE_MS`, `EH_STT_NOISE_REDUCTION`
 (`near_field` for a headset), `EH_TTS_FIRST_CHUNK_CHARS`, `EH_FISH_TEMPERATURE`, `EH_FISH_TOP_P`. Headphones
 remove echo entirely; with laptop speakers the browser's echo cancellation plus the strict barge-in bar and the
 echo guard keep her from interrupting herself.

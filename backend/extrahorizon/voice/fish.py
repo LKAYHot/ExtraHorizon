@@ -7,14 +7,14 @@ Protocol (wss://api.fish.audio/v1/tts/live[/with-timestamp]):
 
 * drama-3-preview exists ONLY on /v1/tts/live/with-timestamp — on /v1/tts/live an unknown
   model silently falls back to another voice model (documented in the owner's
-  AzIAIBetter notes, docs/drama3_voice.md); the model name goes in the ``model`` header.
+  AzI notes, docs/drama3_voice.md); the model name goes in the ``model`` header.
 * latency: a warm pool keeps a connected socket ready (TCP+TLS+WS ≈ 0.3-0.7 s here), the
   ``start`` event is sent as soon as a reply begins (the voice loads while the LLM writes
   its first words), format=pcm (no decoder), latency=balanced (drama: ~0.7 s to first audio).
 * dead air: ``SilenceCap`` trims drama's long pauses; a watchdog ends a reply whose server
   went silent after flush/stop; a breaker stops redialing a failing service for a while.
 
-Design adapted from the owner's AzIAIBetter project (src/azi/tts/fish_ws.py).
+Design adapted from AzI project.
 """
 
 from __future__ import annotations

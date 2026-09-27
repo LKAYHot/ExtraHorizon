@@ -60,6 +60,26 @@ describe('VoiceController', () => {
     v.stop()
   })
 
+  it('lets the learner turn interruptions off: sent on connect and on change, remembered, and said when held', () => {
+    const { v, ws } = setup()
+    expect(ws.json()[1]).toEqual({ type: 'interruptions', on: true }) // the default: talking over her stops her
+    expect(v.canInterrupt).toBe(true)
+    v.setInterruptions(false)
+    expect(ws.json().at(-1)).toEqual({ type: 'interruptions', on: false })
+    expect(store.get('eh.interruptions')).toBe('false') // remembered for the next visit
+    expect(v.canInterrupt).toBe(false)
+    ws.msg({ type: 'held' }) // someone spoke during her answer: she goes on
+    expect(v.notice.kind).toBe('held')
+    expect(v.notice.text).toContain('Rika finishes first')
+    v.stop()
+    // a server with EH_BARGE_IN=false never allows it
+    const again = setup()
+    again.v.setInterruptions(true)
+    again.ws.msg({ type: 'hello', boot_id: 'b', persona: 'Rika', config: { barge_in: false }, tts: {}, stt: {}, fillers: 'ready' })
+    expect(again.v.canInterrupt).toBe(false)
+    again.v.stop()
+  })
+
   it('shows the live transcript, joining a sentence the learner paused in', () => {
     const { v, ws } = setup()
     ws.msg({ type: 'vad', speaking: true, utt: 1, continues: null, barge: false })

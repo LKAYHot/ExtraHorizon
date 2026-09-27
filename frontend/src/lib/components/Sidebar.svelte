@@ -71,7 +71,7 @@
     <div class="eyebrow"><Drama size={13} /> Tutor</div>
     <div class="persona raised" data-testid="persona">
       <div class="p-head"><span class="dot tone-accent"></span><strong>{app.persona}</strong><span class="chip tiny">tsundere · expert</span></div>
-      <p>Prickly on the outside, rigorous on the inside. She answers aloud, reacts to your expression and can be interrupted any time — just start talking.</p>
+      <p>Prickly on the outside, rigorous on the inside. She answers aloud, reacts to your expression and {app.voice.canInterrupt ? 'can be interrupted any time — just start talking' : 'always finishes what she is saying (Stop cuts her off)'}.</p>
       <div class="lang"><Languages size={12} /> Speaks English · understands Russian</div>
     </div>
     <div class="field">
@@ -85,6 +85,16 @@
         <span class="track"></span><span class="knob"></span>
       </span>
       <span>Show voice cues</span>
+    </label>
+    <label class="toggle" title={app.voice.info?.config?.barge_in === false
+      ? 'Turned off on this server (EH_BARGE_IN=false): she always finishes'
+      : 'On: talk over her and she stops. Off: she always finishes her answer — what you say meanwhile is ignored; Stop (Esc) still cuts her off'}>
+      <span class="switch">
+        <input type="checkbox" checked={app.voice.canInterrupt} disabled={app.voice.info?.config?.barge_in === false}
+               onchange={(e) => app.voice.setInterruptions(e.currentTarget.checked)} data-testid="allow-interrupt" />
+        <span class="track"></span><span class="knob"></span>
+      </span>
+      <span>Let me interrupt her</span>
     </label>
   </section>
 

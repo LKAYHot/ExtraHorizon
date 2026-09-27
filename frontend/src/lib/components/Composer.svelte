@@ -7,7 +7,7 @@
   let ta = $state(null)
   let asking = $state(false) // microphone disclosure open
   const v = app.voice
-  const ready = $derived(!!text.trim() && !app.busy)
+  const ready = $derived(!!text.trim() && !app.busy && !app.waitForHer)
   const canStop = $derived(app.busy || app.talkState === 'speaking' || app.talkState === 'thinking')
   const micOn = $derived(v.mic === 'on')
   const showDock = $derived(micOn || v.mic === 'starting' || !!v.caption.text || !!v.notice || ['denied', 'unavailable', 'error'].includes(v.mic) || asking)
@@ -59,7 +59,11 @@
           <ul>
             <li>Your microphone audio goes to {app.local ? "this computer's ExtraHorizon backend, where speech is detected locally" : app.viaTunnel ? "the ExtraHorizon server on the presenter's computer (over HTTPS through Cloudflare Tunnel), where speech is detected" : `the ExtraHorizon backend at ${location.host}, where speech is detected`} (Silero VAD).</li>
             <li>Only the parts where you speak are sent to <strong>OpenAI</strong> for transcription (gpt-live-transcribe). Nothing is recorded or stored.</li>
-            <li>Speak over her to interrupt; say “wait, stop” to just make her stop. Headphones avoid echo.</li>
+            {#if v.canInterrupt}
+              <li>Speak over her to interrupt; say “wait, stop” to just make her stop. Headphones avoid echo.</li>
+            {:else}
+              <li>Interruptions are off: she always finishes her answer — Stop (Esc) cuts her off. Headphones avoid echo.</li>
+            {/if}
           </ul>
           <div class="row">
             <button class="btn primary sm" onclick={consent} data-testid="mic-on"><Mic size={13} /> Turn on microphone</button>
@@ -78,7 +82,7 @@
           {:else if app.talkState === 'thinking'}
             <span class="dot tone-accent pulse"></span> {app.persona} is thinking{#if v.filler}<em>&nbsp;— “{v.filler}”</em>{/if}
           {:else if app.talkState === 'speaking'}
-            <span class="dot tone-accent"></span> {app.persona} is speaking — talk over her to interrupt
+            <span class="dot tone-accent"></span> {app.persona} is speaking — {v.canInterrupt ? 'talk over her to interrupt' : 'she finishes first (Esc stops her)'}
           {:else if micOn}
             <Ear size={13} /> Listening — just start talking (English or Russian)
           {:else if v.mic === 'starting'}
@@ -118,7 +122,8 @@
     {#if canStop}
       <button class="send stop" onclick={() => app.stopAnswer()} aria-label="Stop her answer" title="Stop (Esc)" data-testid="stop"><Square size={13} fill="currentColor" /></button>
     {/if}
-    <button class="send" class:ready onclick={send} disabled={!ready} aria-label="Send" title="Send (Enter)" data-testid="send">
+    <button class="send" class:ready onclick={send} disabled={!ready} aria-label="Send"
+            title={app.waitForHer ? 'She finishes first — interruptions are off (Stop cuts her off)' : 'Send (Enter)'} data-testid="send">
       <ArrowUp size={18} strokeWidth={2.4} />
     </button>
   </div>

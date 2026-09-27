@@ -207,6 +207,9 @@ Client → server:
 * `{"type":"mic","on":true|false}` — voice mode on/off (connects/closes speech-to-text; audio is ignored while off).
 * `{"type":"voice_out","on":true|false}` — speak answers (Fish Audio) or text only.
 * `{"type":"playback","playing":true|false}` — the browser is (not) playing tutor audio (barge-in rules apply while true).
+* `{"type":"interruptions","on":true|false}` — may talking over her interrupt her? Sent on every connect (the
+  browser remembers the choice); `false`: during her turn speech is held — not transcribed, not answered — until
+  her answer is over; the Stop button still stops her. Never beyond the server's `EH_BARGE_IN`.
 * `{"type":"interrupt"}` — stop button. · `{"type":"ping","t":…}`.
 
 Server → client:
@@ -227,6 +230,8 @@ Server → client:
 {"type": "audio_end", "turn_no": 5, "failed": null|"…"}
 {"type": "audio_stop", "turn_no": 5}          // stop playing this turn now; later frames of it are never sent
 {"type": "barge_in", "by": "voice|button"}   // stop everything now
+{"type": "interruptions", "on": false}        // the setting in effect (false when EH_BARGE_IN=false, whatever was asked)
+{"type": "held"}                              // someone spoke during her turn with interruptions off: she goes on
 {"type": "assistant_interrupted", "message_id": "m_…"}
 {"type": "stt_error"|"tts_error", "message": "…"} · {"type": "error", "code": "vad_unavailable|stt_unavailable|bad_message", "message": "…"}
 {"type": "superseded"} · {"type": "reset", "epoch": 4} · {"type": "snapshot", …} · {"type": "pong", "t": …}

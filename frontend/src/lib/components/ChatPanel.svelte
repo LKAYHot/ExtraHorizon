@@ -73,7 +73,7 @@
         <section class="empty">
           <div class="hero-icon"><Sparkles size={22} /></div>
           <h2>What do you want to understand?</h2>
-          <p>Ask {app.persona} anything — type, or turn on the microphone and just talk. She answers out loud, picks up on your facial expression, and stops the moment you interrupt her.</p>
+          <p>Ask {app.persona} anything — type, or turn on the microphone and just talk. She answers out loud, picks up on your facial expression, and {app.voice.canInterrupt ? 'stops the moment you interrupt her' : 'always finishes what she is saying'}.</p>
           <div class="examples">
             {#each EXAMPLES as ex, i (ex)}
               <button class="btn" class:primary={i === 0} onclick={() => app.send(ex)} disabled={app.busy}>{ex}</button>
@@ -93,7 +93,11 @@
           <ol class="how">
             <li><Mic size={15} /><span><strong>Talk</strong> — hands-free: speech is detected on your computer; only your speech is transcribed.</span></li>
             <li><ScanFace size={15} /><span><strong>Expression</strong> — {app.local ? 'your camera is analysed on this computer' : app.viaTunnel ? "your camera is analysed on the presenter's computer" : 'camera frames are analysed by the ExtraHorizon backend'}; a short description goes into her prompt.</span></li>
-            <li><Hand size={15} /><span><strong>Interrupt</strong> — speak over her (or press Esc) and she stops at once; pauses in your sentence are fine.</span></li>
+            {#if app.voice.canInterrupt}
+              <li><Hand size={15} /><span><strong>Interrupt</strong> — speak over her (or press Esc) and she stops at once; pauses in your sentence are fine.</span></li>
+            {:else}
+              <li><Hand size={15} /><span><strong>No interruptions</strong> — she always finishes her answer; press Esc (Stop) to cut her off. Turn it back on in the sidebar.</span></li>
+            {/if}
           </ol>
         </section>
       {/if}

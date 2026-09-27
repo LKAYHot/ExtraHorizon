@@ -67,6 +67,8 @@ class AppState {
   #pendingFocus = null // a focus that arrived before its report was loaded
   /** Voice turn in flight (spoken question being answered), newest first. */
   voiceTurnActive = $derived(this.messages.some((m) => m.role === 'assistant' && m.source === 'voice' && (m.status === 'pending' || m.status === 'streaming')))
+  /** Interruptions are off and it is her turn: a typed question waits until she is done (Stop still stops her). */
+  waitForHer = $derived(!this.voice.canInterrupt && (this.talkState === 'speaking' || this.talkState === 'thinking'))
   /** idle | listening | hearing | thinking | speaking — the tutor's conversational state. */
   talkState = $derived.by(() => {
     const v = this.voice
@@ -373,6 +375,10 @@ class AppState {
   async send(text, { analysis = false, hub = null } = {}) {
     text = (text ?? '').trim()
     if (!text || this.busy) return false
+    if (this.waitForHer) {
+      this.voice.flashHeld()
+      return false
+    }
     this.voice.unlockAudio() // the click/Enter is the user gesture browsers require for audio
     await this.#whenReady()
     if (this.busy) return false

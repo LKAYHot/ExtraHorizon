@@ -46,6 +46,7 @@ the middle (joined) → point at **What Rika is told** and an answer's **express
 | Wrong microphone | choose it in the Microphone list (sidebar or under the chat) — it switches live. |
 | Microphone denied/unavailable | allow it in the address bar; otherwise type — she still speaks the answers. |
 | She interrupts herself (echo) | headphones / lower volume; raise `EH_BARGE_IN_THRESHOLD` (0.6 → 0.7) or `EH_BARGE_IN_MIN_MS` (350 → 500). |
+| A noisy room / the audience cuts her off | turn off **Let me interrupt her** (sidebar) before the demo: she always finishes, speech during her turn is ignored ("she finishes first"), Stop / Esc still stops her. |
 | She cuts you off | raise `EH_VAD_END_SILENCE_MS` (550 → 700). |
 | Fish Audio down / quota | answers still stream as text (toast "Voice output problem"); keep going or restart with `-MockVoice` (labelled tone). |
 | Wi-Fi / OpenAI down | error card with Retry; restart with `-MockLLM -MockVoice` for a labelled offline run. |

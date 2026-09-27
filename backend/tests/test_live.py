@@ -323,6 +323,76 @@ def test_barge_in_stops_her_voice_keeps_the_partial_answer_and_wait_stop_only_st
             cm.__exit__(None, None, None)
 
 
+def test_with_interruptions_off_talking_over_her_neither_stops_her_nor_becomes_a_question():
+    """The owner's request: a mode in which she cannot be interrupted (a noisy room, a stage demo)."""
+    long = " ".join(["[calm] Recursion means a function calls itself on a smaller input."] * 6)
+    c, llm = voice_app(["Explain recursion to me please.", "And give me an example."],
+                       llm=FakeLLM(script=["slow", "slow", "ok", "ok"], text=long),
+                       llm_idle_timeout_s=2.0, llm_first_token_timeout_s=2.0)
+    with c:
+        cm, live, sid = open_live(c)
+        try:
+            live.send({"type": "interruptions", "on": False})
+            assert live.until(lambda m: m["type"] == "interruptions")["on"] is False
+            live.say(question(1.2))
+            begin = live.until(lambda m: m["type"] == "audio_begin" and m["kind"] == "answer")
+            turn = begin["turn_no"]
+            live.send({"type": "playback", "playing": True})  # the browser is playing her voice
+            live.drain(0.1)
+            live.say(speech_pcm(0.8) + silence_pcm(0.8))  # someone talks over her
+            assert live.until(lambda m: m["type"] == "held")
+            done = live.until(lambda m: m["type"] == "turn" and m["turn_no"] == turn and m["event"] in ("done", "interrupted"))
+            assert done["event"] == "done"  # she finished
+            assert not live.of("barge_in") and not live.of("audio_stop", turn_no=turn)
+            assert len(live.of("vad", speaking=True)) == 1  # the held speech opened no utterance …
+            assert len(llm.requests) == 2  # … and asked nothing (the speculative start + her answer)
+            st = c.get(f"/api/session/{sid}/state").json()
+            assert st["messages"][-1]["text"] and not st["messages"][-1].get("interrupted")
+            # once she is done, the next question is heard as usual (the held speech was never transcribed)
+            live.until(lambda m: m["type"] == "audio_end" and m["turn_no"] == turn)
+            live.send({"type": "playback", "playing": False})
+            live.drain(0.3)
+            live.say(question(1.2))
+            assert live.until(lambda m: m["type"] == "heard")["text"] == "And give me an example."
+        finally:
+            cm.__exit__(None, None, None)
+
+
+def test_with_interruptions_off_a_pause_mid_sentence_still_joins_and_stop_still_stops():
+    c, llm = voice_app(["Explain recursion", "and give me an example."],
+                       llm=FakeLLM(script=["hang", "hang", "slow", "slow"],
+                                   text=" ".join(["[calm] Recursion is a function calling itself."] * 10)),
+                       llm_first_token_timeout_s=3.0, llm_idle_timeout_s=2.0)
+    with c:
+        cm, live, _ = open_live(c)
+        try:
+            live.send({"type": "interruptions", "on": False})
+            live.until(lambda m: m["type"] == "interruptions")
+            live.say(speech_pcm(0.8) + silence_pcm(0.7))  # "Explain recursion" … (a pause)
+            live.until(lambda m: m["type"] == "vad" and m["speaking"] is False)
+            live.say(speech_pcm(1.0) + silence_pcm(0.8))  # … their own sentence goes on: not an interruption
+            start2 = live.until(lambda m: m["type"] == "vad" and m["speaking"] is True)
+            assert start2["continues"] == 1 and not live.of("held")
+            assert live.until(lambda m: m["type"] == "heard")["text"] == "Explain recursion and give me an example."
+            live.until(lambda m: m["type"] == "turn" and m["event"] == "delta")
+            live.send({"type": "interrupt"})  # the Stop button always stops her
+            assert live.until(lambda m: m["type"] == "barge_in")["by"] == "button"
+        finally:
+            cm.__exit__(None, None, None)
+
+
+def test_the_servers_setting_caps_the_browsers_choice():
+    c, _ = voice_app(["Hi."], barge_in=False)
+    with c:
+        cm, live, _ = open_live(c)
+        try:
+            assert live.of("hello")[0]["config"]["barge_in"] is False
+            live.send({"type": "interruptions", "on": True})
+            assert live.until(lambda m: m["type"] == "interruptions")["on"] is False  # EH_BARGE_IN=false wins
+        finally:
+            cm.__exit__(None, None, None)
+
+
 def test_a_pause_mid_sentence_continues_the_same_question():
     c, llm = voice_app(["Explain recursion", "and give me an example."],
                        llm=FakeLLM(script=["hang", "hang", "ok", "ok"]), llm_first_token_timeout_s=3.0)

@@ -28,7 +28,8 @@ Read `docs/VOICE.md` first (diagram, turn-taking table, measured latencies). Cod
 | Multi-second pauses mid-sentence | drama "plays" pauses | `EH_TTS_MAX_SILENCE_MS` (700) / `EH_TTS_MAX_LEADING_SILENCE_MS` (120) |
 | Answers before the learner finished | end-of-speech too eager | `EH_VAD_END_SILENCE_MS` 550 → 700; pauses < `EH_VOICE_MERGE_WINDOW_S` are joined anyway |
 | She interrupts herself | her voice leaks into the mic | headphones; `EH_BARGE_IN_THRESHOLD` 0.6 → 0.7, `EH_BARGE_IN_MIN_MS` 350 → 500; the echo guard catches transcripts that repeat her words |
-| Talking over her doesn't stop her | barge-in bar too high / playback state not reported | lower the barge-in knobs; check the browser sends `{"type":"playback"}` |
+| Talking over her doesn't stop her | interruptions turned off (sidebar *Let me interrupt her*, `EH_BARGE_IN=false`) / barge-in bar too high / playback state not reported | the switch; lower the barge-in knobs; check the browser sends `{"type":"playback"}` |
+| Other voices in a noisy room cut her off | interruptions are on | turn off *Let me interrupt her* (she finishes; Stop still works) |
 | "Wait, stop" starts a new answer | not recognised as a stop command | `STOP_CORE`/`STOP_EXTRA` in `live_ws.py` (+ a case in `test_stop_commands`) |
 | Misheard domain words | STT prompt | `EH_STT_PROMPT` vocabulary; `EH_STT_CONTEXT_BIAS=true` adds her last words; `EH_STT_NOISE_REDUCTION=near_field` for headsets |
 | Voice cut at the start of a new answer | a stale `audio_stop` for a shared turn | invariant: never `audio_stop` an unreleased speculative speaker (see `Speaker.abort_nowait`) — regression test in `test_live.py` |
@@ -41,6 +42,12 @@ Read `docs/VOICE.md` first (diagram, turn-taking table, measured latencies). Cod
 - Only VAD-detected speech (+pre-roll) goes to speech-to-text; mic off = nothing is processed.
 - A speculative turn is invisible and silent until confirmed; a mismatch replaces it on the same turn number.
 - Barge-in / stop / newer question / reset stop her voice at once; frames of stopped turns are never sent again.
+- **Interruptions off** (`{"type":"interruptions","on":false}`, the sidebar's *Let me interrupt her*, remembered in
+  the browser): during her turn — thinking, speaking, writing a report silently — speech is held in `_utt_start`
+  before it becomes an utterance (no number, no transcription, no answer; `held` → "she finishes first"), a typed
+  question waits (`app.waitForHer`); a continuation of the learner's own paused sentence still joins; the Stop button
+  always stops her; `EH_BARGE_IN=false` caps it for everyone (tests: `test_with_interruptions_off_*`,
+  `test_the_servers_setting_caps_the_browsers_choice`, `voice.test.js`, e2e `demo.spec.js`).
 - The first cancel reason wins (`interrupted` keeps the partial answer).
 - Fish `drama-*` models only on `/v1/tts/live/with-timestamp` with the `model` header.
 - Update `docs/VOICE.md` (and EXTERNAL_DEPENDENCIES.md for provider/model changes) with any behaviour change.

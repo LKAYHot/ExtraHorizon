@@ -72,7 +72,8 @@ differences (Cloudflare relays the camera and microphone traffic) and troublesho
 
 Every threshold and timing is an environment variable (`EH_*`) with defaults in
 `backend/extrahorizon/config.py`; the annotated list is in [.env.example](.env.example) — e.g.
-`EH_VAD_END_SILENCE_MS` (how fast she answers), `EH_BARGE_IN_*` (how easily you interrupt her),
+`EH_VAD_END_SILENCE_MS` (how fast she answers), `EH_BARGE_IN_*` (how easily you interrupt her — or switch
+interruptions off in the sidebar, *Let me interrupt her*: she then always finishes, Stop / Esc still stops her),
 `EH_VOICE_MERGE_WINDOW_S`, `EH_EMOTION_SENSITIVITY` / `EH_EMOTION_CALIBRATION_S` / other `EH_EMOTION_*`, `EH_FISH_*`,
 for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`, and for the analysis `EH_COORD_DISTANCE_M`,
 `EH_COORD_WINDOW_DAYS`, `EH_COORD_AREA_M` (also adjustable in the panel), `EH_COORD_CACHE_TTL_S`.

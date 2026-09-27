@@ -15,6 +15,7 @@ export class VoiceController {
   socket = $state('closed') // connecting | open | closed | superseded
   info = $state.raw(null) // hello: {config, tts, stt, vad, fillers, persona}
   speaker = $state(readPref('speaker', true)) // speak answers aloud
+  interruptions = $state(readPref('interruptions', true)) // talking over her stops her (off: she always finishes)
   consented = $state(readPref('micConsent', false))
   mic = $state('off') // off | starting | on | denied | unavailable | error
   micMessage = $state('')
@@ -113,6 +114,7 @@ export class VoiceController {
       this.socket = 'open'
       this.#reconnectDelay = 500
       this.#send({ type: 'voice_out', on: this.speaker })
+      this.#send({ type: 'interruptions', on: this.interruptions })
       if (this.mic === 'on') this.#send({ type: 'mic', on: true })
       this.#reportedPlaying = false
     }
@@ -152,6 +154,22 @@ export class VoiceController {
   /** Call from a user gesture (send button, mic button): browsers only allow audio after one. */
   unlockAudio() {
     if (this.speaker) this.#player.unlock()
+  }
+
+  /** May talking over her interrupt her? (The server's EH_BARGE_IN=false turns it off for everyone.) */
+  get canInterrupt() {
+    return this.interruptions && this.info?.config?.barge_in !== false
+  }
+
+  setInterruptions(on) {
+    this.interruptions = on
+    writePref('interruptions', on)
+    this.#send({ type: 'interruptions', on })
+  }
+
+  /** She keeps her turn (interruptions are off): say so where the voice notices appear. */
+  flashHeld() {
+    this.#flash('held', `${this.info?.persona ?? 'She'} finishes first — interruptions are off (Stop or Esc cuts her off).`)
   }
 
   setSpeaker(on) {
@@ -337,6 +355,9 @@ export class VoiceController {
       case 'barge_in':
         this.#player.stopAll()
         this.filler = ''
+        break
+      case 'held':
+        this.flashHeld()
         break
       case 'turn':
         if (m.event === 'meta') this.caption = { text: '', final: false }

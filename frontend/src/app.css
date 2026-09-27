@@ -1,4 +1,4 @@
-/* ExtraHorizon design system — adapted from the AzIAIBetter console ("matte, with depth"):
+/* ExtraHorizon design system — adapted Azi console ("matte, with depth"):
    every plane is one material (solid colour + --sheen light-from-above + a depth level
    --rise-1..3 or --sink), a static grain + dot grid, glass only over static things,
    motion only via transform/opacity and paused in background tabs / reduced-motion.
