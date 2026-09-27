@@ -47,3 +47,4 @@ Thumbs.db
 backend/tests/.cache/
 frontend/e2e/.cache/
 /docs
+EXTERNAL_DEPENDENCIES.md
