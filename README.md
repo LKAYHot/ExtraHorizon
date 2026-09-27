@@ -85,38 +85,6 @@ The tunnel's public hostname must point to `http://127.0.0.1:8080`. Setup, secur
 differences (Cloudflare relays the camera and microphone traffic) and troubleshooting:
 [docs/REMOTE_DEMO.md](docs/REMOTE_DEMO.md).
 
-## The 60–90 s demo
-
-1. Open the app → **Turn on camera** (the card explains the data path) → look at the screen with a relaxed
-   face for ~3 s (**Calibrating…**, dashed violet box) → the face box gets a label (*Neutral*); the
-   **Expression** panel shows the dominant expression, 8 calibrated bars, the mood map and the stacked
-   timeline; **What Rika is told** shows the exact note. **Calm · Balanced · Expressive** sets how readily an
-   expression is reported; **Recalibrate** learns your face again.
-2. Click the **microphone** → read the one-time disclosure → pick the microphone in its list (also in the sidebar
-   and under the chat while talking; the choice is remembered) → **Turn on microphone**. Ask *"Can you see me?"* — she says she
-   does and what you look like (briefly, in character). Just talk:
-   *"Explain recursion to me."* The orb turns green while she hears you; a filler ("Hmph.") plays the
-   instant you stop; her answer starts ≈1.7–2.5 s after you stop speaking, in character, with voice cues
-   shown as small stage directions in the chat.
-3. Talk over her — *"Wait, stop."* — she stops at once (and "wait, stop" alone does not start a new answer).
-4. Pause mid-sentence ("Explain recursion to me… and give an example") — the parts are joined into one question.
-5. Smile or frown clearly for a second → the expression changes in the panel (a small brow twitch or a lowered
-   head does not); the next answer's **expression sent** chip shows what went into her prompt.
-6. **Coordination** (or ask *"Where do the utilities' construction plans overlap?"*) → the analysis runs in a few
-   seconds; the panel switches to the map (blue = the utility network, orange = the road work — or the pair's first and
-   second plan; white = the overlap),
-   opened on the strongest finding; she summarises it aloud and writes the report with finding IDs; **Re-check live**
-   reads a finding's two records from the county again; **Sources & checks** shows every layer's verification.
-7. **Hub** (or say *"I'm stuck: my Svelte app gets a CORS error from FastAPI"*) → Stack Overflow, GitHub and the
-   registries are searched on screen; she explains the verified fix (S1 …) — *This fixed it* shares it, *Still
-   stuck?* asks a person; **People** → *Find teammates* or a role chip (the board, then real GitHub profiles in
-   Miami), *Find a mentor* (Stack Overflow's top answerers); **Help board** → real unsolved questions in your stack;
-   **Ship** → pick the deadline in the calendar, tick milestones, ask her how you are doing.
-8. **New session** clears chat, emotion history, timeline, the analysis and the hub results (the board stays).
-
-No camera? Everything still works; the **Demo simulation mode** card drives the same emotion engine with a
-chosen expression — labelled **SIMULATED** everywhere. Full script, fallbacks and honest claims:
-[docs/PITCH.md](docs/PITCH.md).
 
 ## Architecture
 
