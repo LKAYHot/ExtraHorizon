@@ -16,8 +16,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .context import build_messages, emotion_note, normalize_subject
+from .context import analysis_language, build_messages, emotion_note, normalize_subject
 from .coord.intent import about_analysis, wants_analysis, wants_refresh, wants_rerun
+from .hub.intent import about_hub, hub_intent
+from .hub.report import hub_note, hub_sheet, ship_sheet
+from .hub.ship import ShipPlan
 from .coord.refs import with_ids
 from .coord.report import fact_sheet
 from .emotion.calibration import SENSITIVITY, Calibrator
@@ -84,6 +87,10 @@ class ChatPlan:
     settled: asyncio.Event = field(default_factory=asyncio.Event)  # the turn has ended (committed or not)
     analysis_sheet: str | None = None  # the exact fact sheet in the prompt (for the grounding check)
     build: dict[str, Any] = field(default_factory=dict)  # to rebuild the prompt once the analysis is ready
+    # hackathon hub: {"mode": "run" | "context", "kind": "unstuck" | "learn" | "team" | "mentors" | "ship",
+    #                 "report_id", "check", "live", "tools"}
+    hub: dict[str, Any] | None = None
+    hub_sheet: str | None = None  # the hub's fact sheet in the prompt (for the grounding check)
 
     def meta(self, model: str, voice: bool) -> dict[str, Any]:
         return {
@@ -96,6 +103,7 @@ class ChatPlan:
             "turn_no": self.turn_no,
             "voice": voice,
             "analysis": {k: v for k, v in (self.analysis or {}).items() if k in ("mode", "report_id")} or None,
+            "hub": {k: v for k, v in (self.hub or {}).items() if k in ("mode", "kind", "report_id")} or None,
         }
 
 
@@ -124,6 +132,9 @@ class Session:
         self._told_dominant: str | None = None  # what she saw when the learner last spoke
         self.analysis: dict[str, Any] | None = None  # the utility-coordination report on screen (coord/)
         self.coord_params: dict[str, Any] = {}  # the learner's thresholds for it (distance_m, window_days, area_m)
+        self.hub_report: dict[str, Any] | None = None  # the hackathon hub's results on screen (hub/)
+        self.hub_token: str | None = None  # this browser's board token (whose card, requests and cards are its own)
+        self.ship = ShipPlan()  # the team's road to the deadline (survives "New session" in the same tab)
         self.last_active = clock()
 
     # ------------------------------------------------------------------ plumbing
@@ -351,8 +362,25 @@ class Session:
             voice=b["voice"], analysis_sheet=sheet, analysis_mode=(plan.analysis or {}).get("mode"),
         )
 
+    def hub_messages(self, plan: ChatPlan, report: dict[str, Any] | None) -> list[dict[str, str]]:
+        """The prompt of a hub turn once its search is done (or failed)."""
+        b = plan.build
+        hub = plan.hub or {}
+        kind = hub.get("kind", "unstuck")
+        if kind == "ship":
+            sheet = ship_sheet(self.ship.status())
+        else:
+            sheet = hub_sheet(report or {"error": "the search did not run"}, self.ship.status())
+        plan.hub_sheet = sheet
+        return build_messages(
+            self.messages, b["text"], subject=self.subject, emotion_context=b["ctx"],
+            history_turns=self.settings.llm_history_turns, name=self.settings.persona_name, voice=b["voice"],
+            hub_sheet=sheet, hub_note=hub_note(kind, hub.get("mode", "run"), analysis_language(b["text"])),
+        )
+
     def plan_chat(self, *, message: str | None, subject: str | None, source: str = "text",
-                  turn_no: int | None = None, speculative: bool = False, analysis: bool = False) -> ChatPlan:
+                  turn_no: int | None = None, speculative: bool = False, analysis: bool = False,
+                  hub: str | None = None) -> ChatPlan:
         if subject:
             self.subject = normalize_subject(subject)
         text = (message or "").strip()
@@ -381,6 +409,15 @@ class Session:
         elif asked or about_analysis(text, self.analysis):
             mode = "context"
         sheet = fact_sheet(self.analysis, mention=text) if mode == "context" else None
+        # the hackathon hub (only when the analysis does not claim the message): a search first ("run"), or a
+        # follow-up about the results on screen ("context")
+        hub_plan: dict[str, Any] | None = None
+        if mode is None and not analysis and getattr(self.settings, "hub_enabled", False):
+            kind = hub if hub in ("unstuck", "learn", "team", "mentors", "ship") else hub_intent(text)
+            if kind:
+                hub_plan = {"mode": "run", "kind": kind, "report_id": None}
+            elif self.hub_report and not self.hub_report.get("error") and about_hub(text, self.hub_report):
+                hub_plan = {"mode": "context", "kind": self.hub_report["kind"], "report_id": self.hub_report["id"]}
         gate = asyncio.Event()
         if not speculative:
             gate.set()
@@ -406,7 +443,10 @@ class Session:
                       if mode else None),
             analysis_sheet=sheet,
             build={"text": text, "ctx": ctx, "voice": source == "voice"},
+            hub=hub_plan,
         )
+        if hub_plan and (hub_plan["mode"] == "context" or hub_plan["kind"] == "ship"):
+            plan.llm_messages = self.hub_messages(plan, self.hub_report)  # nothing to search: the sheet is ready
         self._chat_plan = plan
         self.touch()
         return plan
@@ -471,6 +511,9 @@ class Session:
         if plan.analysis:
             assistant["analysis"] = {k: v for k, v in plan.analysis.items()
                                      if k in ("mode", "report_id", "check", "live", "tools")}
+        if plan.hub:
+            assistant["hub"] = {k: v for k, v in plan.hub.items()
+                                if k in ("mode", "kind", "report_id", "check", "live", "tools")}
         self.messages.extend([plan.user_msg, assistant])
         del self.messages[:-MAX_MESSAGES]
         self._chat_plan = None
@@ -524,6 +567,7 @@ class Session:
         self._told_dominant = None
         self.analysis = None
         self.coord_params = {}
+        self.hub_report = None
         self.touch()
         self.notify({"type": "reset", "epoch": self.epoch}, self.snapshot_message())
         return self.epoch

@@ -2,7 +2,7 @@
   import { tick } from 'svelte'
   import { app } from '$lib/app.svelte.js'
   import { TALK_LABEL } from '$lib/format.js'
-  import { Sparkles, Mic, ScanFace, Hand, Volume2, VolumeX, Construction } from '$lib/icons.js'
+  import { Sparkles, Mic, ScanFace, Hand, Volume2, VolumeX, Construction, LifeBuoy, Users } from '$lib/icons.js'
   import Message from './Message.svelte'
   import Composer from './Composer.svelte'
   import TalkOrb from './TalkOrb.svelte'
@@ -54,6 +54,11 @@
                 title="Compare the utilities' public construction plans (Miami-Dade open data)" aria-pressed={app.view === 'analysis'}
                 data-testid="coord-toggle"><Construction size={14} /> Coordination</button>
       {/if}
+      {#if app.hubEnabled}
+        <button class="btn sm" class:primary={app.view === 'hub'} onclick={() => (app.view = app.view === 'hub' ? 'tutor' : 'hub')}
+                title="Hackathon hub: get unstuck with verified public answers, find teammates and mentors, ship on time"
+                aria-pressed={app.view === 'hub'} data-testid="hub-toggle"><LifeBuoy size={14} /> Hub</button>
+      {/if}
       <button class="btn sm icon" class:off={!v.speaker} onclick={() => v.setSpeaker(!v.speaker)}
               title={v.speaker ? 'Voice on — she speaks her answers (click to mute)' : 'Voice off — text only (click to unmute)'}
               aria-pressed={v.speaker} aria-label="Speak answers aloud" data-testid="speaker-toggle">
@@ -77,6 +82,12 @@
               <button class="btn" onclick={() => app.runAnalysis()} disabled={app.busy} data-testid="coord-example">
                 <Construction size={14} /> Where do the utilities' construction plans overlap?
               </button>
+            {/if}
+            {#if app.hubEnabled}
+              <button class="btn" onclick={() => app.hub.search('unstuck', "I'm stuck: my Svelte app gets \"blocked by CORS policy: No 'Access-Control-Allow-Origin' header\" from my FastAPI backend.")}
+                      disabled={app.busy} data-testid="hub-example"><LifeBuoy size={14} /> I'm stuck on a CORS error — help me get unstuck</button>
+              <button class="btn" onclick={() => app.hub.search('team', 'Find me a teammate who knows React or a designer.')} disabled={app.busy}
+                      data-testid="hub-example-team"><Users size={14} /> Find me a teammate</button>
             {/if}
           </div>
           <ol class="how">

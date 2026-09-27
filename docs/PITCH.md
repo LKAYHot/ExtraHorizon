@@ -12,6 +12,15 @@ to it — happy, surprised, anxious, neutral… — so a resting face or a lower
 you like on a video call and adapts her tone and pacing. Your video never leaves the laptop; the language
 model only gets a few words like *"the learner looks mostly anxious; frowning"*.
 
+**Hackathon hub (the second challenge).** At 3 a.m. a beginner stays stuck on a CORS error for two hours because they
+don't want to ask a "dumb" question, while the one mentor answers the same question for the fifth team. Tell Rika the
+error: she searches Stack Overflow, GitHub and the package registries, keeps only verified answers and explains the
+fix with the exact command — and shows the team here that solved it an hour ago and the mentor who covers FastAPI.
+One click shares what fixed it, so the next team finds it; *Still stuck?* posts a well-formed help request. The same
+hub finds teammates by the roles you need — on the event's board, then real public GitHub profiles in the city whose
+repositories use that stack — and mentors among Stack Overflow's top answerers, and keeps you shipping: a
+countdown, seven milestones, and the 30-minute rule — stuck that long, ask a person.
+
 ## Demo (60–90 s)
 
 | t | Do | Say |
@@ -27,7 +36,9 @@ model only gets a few words like *"the learner looks mostly anxious; frowning"*.
 | 1:10 | **"Where do the utilities' construction plans overlap?"** | "Second skill: she reads Miami-Dade's public utility plans live, verifies every record and flags where two utilities will dig near each other at the same time." |
 | 1:20 | The map opens on F1 (blue sewer main × orange state road, white overlap); **Sources & checks** | Read the tiles aloud (on 2026-09-26: "2,815 records read, 386 verified future projects, every exclusion counted — and 64 of our 80 intersecting pairs are on the county's own conflict list"). "Every number she wrote is checked against this data." |
 | 1:30 | Ask out loud **"What about F one forty-six?"**, then **"Is it still true? Re-check it."** | "The map moved before she answered — she looks up any of the 583 findings, and just re-read both projects from the county's service." |
-| 1:45 | **New session** | "Clean slate for the next person." |
+| 1:45 | **"I'm stuck: my Svelte app gets a CORS error from FastAPI."** (or paste the error in **Hub → Get unstuck**) | "Third skill, for hackers: she searched Stack Overflow, GitHub and the registries on screen, kept only verified answers — accepted, matching the error, with their authors and licence — and anything a team here already shared about it." |
+| 1:55 | Click **S1** in her answer → **This fixed it — share it**; **People → Frontend** (a role chip); **Ship** → pick the deadline | "One click and the next team stuck on this finds the fix. Teammates by the role I need — people on this board first, then real public GitHub profiles here in Miami whose code uses that stack, labelled as leads. The Ship tab keeps us honest about the deadline." |
+| 2:05 | **New session** | "Clean slate for the next person." |
 
 If the camera misbehaves: say so, open **Demo simulation mode** (labelled SIMULATED / NOT LIVE everywhere) and pick
 an expression — the same engine → note → answer chain. Never present simulation as recognition. If the Wi-Fi dies:
@@ -51,6 +62,13 @@ an expression — the same engine → note → answer chain. Never present simul
   gas and telecom layers are published but empty today, so the utilities compared are WASD's and DTPW's networks
   against each other and against FDOT/DTPW road work. Her report's figures are checked against the verified data.
   The map tiles come from OpenStreetMap's servers.
+* Hackathon hub: only a signature of the error is searched (paths, hosts, ports, keys removed) on Stack Overflow,
+  GitHub, npm and PyPI; "verified" means it passed these checks (matching, accepted or voted, fixed, the registries'
+  own data) — not that it is right for your code; old answers are flagged; excerpts carry author and licence
+  (CC BY-SA). The board holds only what people put on it, visible to everyone using the app, until deleted; skills
+  "seen on GitHub" (opt-in) are not a rating, nor proof that the account is theirs. People found on GitHub or
+  Stack Overflow are real public profiles, shown as leads ("not at this event, has not said they are looking for a
+  team") — never their e-mail or links. No sample entries: everything on the board was written by someone here.
 * **Remote demo (the PC at home, the laptop on stage):** say it plainly — "the heavy lifting runs on my PC at home;
   this laptop just streams the camera and microphone to it over HTTPS through Cloudflare Tunnel". Then the video does
   *not* stay on the laptop: it goes through Cloudflare to the PC, is analysed there in memory and discarded — the app

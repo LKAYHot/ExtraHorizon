@@ -296,6 +296,24 @@ class MockLLM(BaseLLM):
         followup = any(m["role"] == "system" and "Reply rules: the learner asks about the utility-coordination "
                        "analysis" in str(m.get("content") or "") for m in messages)
         looked_up = [m["content"] for m in messages if m["role"] == "tool"]
+        hub = next((str(m["content"]) for m in messages if m["role"] == "system"
+                    and str(m.get("content") or "").startswith(_HUB_SHEETS)), None)
+        if hub is not None:
+            hub_followup = any(m["role"] == "system" and "the learner asks about the hackathon-hub results"
+                               in str(m.get("content") or "") for m in messages)
+            refs = [r for r in dict.fromkeys(re.findall(r"\b[SLPMK]\d{1,2}\b", question)) if f"\n{r} — " in f"\n{hub}"]
+            if hub_followup and tools and tool_choice != "none" and not looked_up and refs:
+                # the offline tutor looks the result up with the same tool the real model uses
+                yield ToolCalls(({"id": "mock_hub_1", "name": "get_hub_item", "arguments": json.dumps({"id": refs[0]})},))
+                yield StreamInfo(model=self.model, finish_reason="tool_calls")
+                return
+            body = _mock_hub(hub, refs, looked_up[-1] if looked_up else None)
+            for piece in re.findall(r"\S+\s*|\s+", body):
+                if self.delay_s:
+                    await asyncio.sleep(self.delay_s)
+                yield piece
+            yield StreamInfo(model=self.model, finish_reason="stop")
+            return
         if sheet and followup and tools and tool_choice != "none" and not looked_up and not _mock_ids(question):
             # the offline tutor looks the question up with the same tool the real model uses
             yield ToolCalls(({"id": "mock_1", "name": "find_findings",
@@ -319,6 +337,28 @@ class MockLLM(BaseLLM):
                 await asyncio.sleep(self.delay_s)
             yield piece
         yield StreamInfo(model=self.model, finish_reason="stop")
+
+
+_HUB_SHEETS = ("[Verified help for the learner's roadblock", "[Verified places to learn", "[Who fits what the learner asked",
+               "[The learner's ship status", "[Hackathon hub — FAILED")
+
+
+def _mock_hub(sheet: str, refs: list[str], looked_up: str | None) -> str:
+    """The offline tutor's hub answer: lines of the hub's fact sheet, verbatim (labelled mock)."""
+    if sheet.startswith("[Hackathon hub — FAILED"):
+        return "[calm] The search did not work — this is the offline mock tutor, so here is what the server said.\n\n" \
+               + sheet.strip("[]")
+    lines = sheet.splitlines()
+    if looked_up:
+        return ("[calm] I looked it up — this is the offline mock tutor, so here it is word for word.\n\n"
+                + "\n".join(f"- {ln}" for ln in looked_up.splitlines() if ln.strip()))
+    picked = [ln for ln in lines if ln.split(" — ")[0] in refs] if refs else []
+    if not picked:
+        picked = [ln for ln in lines if re.match(r"[SLPMK]\d{1,2} — ", ln)][:6]
+    picked += [ln for ln in lines if ln.startswith(("Checked:", "Time left", "Milestones done", "Nudge:", "Open roadblock"))]
+    head = ("[calm] I checked the public sources and this event's board — this is the offline mock tutor, so the "
+            "verified results follow word for word.")
+    return head + "\n\n" + "\n".join(f"- {ln}" for ln in picked or ["The search found nothing verified."])
 
 
 def _mock_ids(question: str) -> list[str]:

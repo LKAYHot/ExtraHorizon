@@ -65,6 +65,39 @@ export async function coordRecheck(sessionId, findingId) {
   return jsonOrThrow(res)
 }
 
+// ------------------------------------------------------------------ hackathon hub (docs/HUB.md)
+// every hub request carries this browser's board token (the server may have lost the session that knew it)
+function hubHeaders(extra = {}) {
+  let t = null
+  try {
+    t = localStorage.getItem('eh.hub.token')
+  } catch {
+    t = null
+  }
+  return t ? { ...extra, 'X-Hub-Token': t } : extra
+}
+const post = (url, body) => fetch(url, { method: 'POST', headers: hubHeaders(JSON_HEADERS), body: JSON.stringify(body) }).then(jsonOrThrow)
+const del = (url) => fetch(url, { method: 'DELETE', headers: hubHeaders() }).then(jsonOrThrow)
+const get = (url) => fetch(url, { cache: 'no-store', headers: hubHeaders() }).then(jsonOrThrow)
+
+/** A session starts: this browser's board token (if any) and the ship plan it kept. */
+export const hubHello = (sessionId, token, ship) => post('/api/hub/hello', { session_id: sessionId, token: token || null, ship: ship || null })
+export const hubReport = (sessionId) => get(`/api/hub/report?session_id=${sessionId}`)
+export const hubClose = (sessionId) => del(`/api/hub/report?session_id=${sessionId}`)
+export const hubBoard = (sessionId) => get(`/api/hub/board?session_id=${sessionId}`)
+export const hubQuestions = (sessionId) => get(`/api/hub/questions?session_id=${sessionId}`)
+export const hubSaveProfile = (sessionId, profile) => post('/api/hub/profile', { session_id: sessionId, ...profile })
+export const hubDeleteProfile = (sessionId) => del(`/api/hub/profile?session_id=${sessionId}`)
+export const hubPostRequest = (sessionId, req) => post('/api/hub/requests', { session_id: sessionId, ...req })
+export const hubClaim = (sessionId, rid) => post(`/api/hub/requests/${encodeURIComponent(rid)}/claim`, { session_id: sessionId })
+export const hubRelease = (sessionId, rid) => post(`/api/hub/requests/${encodeURIComponent(rid)}/release`, { session_id: sessionId })
+export const hubResolve = (sessionId, rid, body) => post(`/api/hub/requests/${encodeURIComponent(rid)}/resolve`, { session_id: sessionId, ...body })
+export const hubWithdraw = (sessionId, rid) => del(`/api/hub/requests/${encodeURIComponent(rid)}?session_id=${sessionId}`)
+export const hubAddCard = (sessionId, card) => post('/api/hub/cards', { session_id: sessionId, ...card })
+export const hubHelpful = (sessionId, cid) => post(`/api/hub/cards/${encodeURIComponent(cid)}/helpful`, { session_id: sessionId })
+export const hubDeleteCard = (sessionId, cid) => del(`/api/hub/cards/${encodeURIComponent(cid)}?session_id=${sessionId}`)
+export const hubShip = (sessionId, change) => post('/api/hub/ship', { session_id: sessionId, ...change })
+
 export async function getHealth(deep = false, signal) {
   const res = await fetch(`/api/health${deep ? '?deep=1' : ''}`, { cache: 'no-store', signal })
   return jsonOrThrow(res)
@@ -99,7 +132,7 @@ export async function resetSession(sessionId) {
  * HTTP errors, a missing terminal event and a silent connection (idle watchdog)
  * all become onError — the UI can never stay in "thinking".
  */
-export async function streamChat(body, { onMeta, onDelta, onAnalysis, onFocus, onTool, onRecheck, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
+export async function streamChat(body, { onMeta, onDelta, onAnalysis, onHub, onFocus, onTool, onRecheck, onDone, onInterrupted, onError, signal, idleMs = 25000 } = {}) {
   let finished = false
   const finish = (fn, arg) => {
     if (finished) return
@@ -153,6 +186,7 @@ export async function streamChat(body, { onMeta, onDelta, onAnalysis, onFocus, o
         if (ev.event === 'meta') onMeta?.(data)
         else if (ev.event === 'delta') onDelta?.(data.text ?? '')
         else if (ev.event === 'analysis') onAnalysis?.(data)
+        else if (ev.event === 'hub') onHub?.(data)
         else if (ev.event === 'focus') onFocus?.(data)
         else if (ev.event === 'tool') onTool?.(data)
         else if (ev.event === 'recheck') onRecheck?.(data)

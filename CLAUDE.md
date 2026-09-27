@@ -8,7 +8,8 @@ Original brief: `ExtraHorizon_ShellHacks_Implementation_Prompt.md`; the follow-u
 instead of confusion, Fish voice with emotion cues, tsundere persona, real-time voice with barge-in and
 fillers; then per-person calibration of the expression estimate, microphone choice, and a persona that talks
 like a person on a video call and "sees" the learner; then the utility-coordination analysis of Miami-Dade's public
-construction plans — docs/ANALYSIS.md) are reflected in `docs/`.
+construction plans — docs/ANALYSIS.md; then the hackathon hub: verified help from public sources, teammates and
+mentors, shared knowledge, shipping on time — docs/HUB.md) are reflected in `docs/`.
 
 Project skills (use them — they hold the procedures and the invariants):
 
@@ -20,6 +21,7 @@ Project skills (use them — they hold the procedures and the invariants):
 - `extrahorizon-demo-rehearsal` — the 60–90 s script, fallbacks, manual matrix, honest claims.
 - `extrahorizon-remote-demo` — the home PC behind Cloudflare Tunnel (`scripts/demo-host.ps1`), the access key, remote troubleshooting.
 - `extrahorizon-coord-analysis` — the utility-coordination analysis: county data, verification, overlaps, cross-check, grounded report, map panel, `scripts/coord_report.py`.
+- `extrahorizon-hub` — the hackathon hub: error signature + scrubbing, public sources (Stack Exchange, GitHub, npm, PyPI, DEV), verification, the board, matching, the Ship tab.
 
 Hard rules:
 
@@ -27,5 +29,6 @@ Hard rules:
 - Never turn on the user's physical webcam or microphone without asking. In the browser pane, mute the speaker toggle before sending questions (her voice would play on the user's speakers).
 - Keep UI, README, pitch and `EXTERNAL_DEPENDENCIES.md` truthful about data flow (localhost frames; speech segments → OpenAI transcription; text + words-only expression note → OpenAI chat; answer text → Fish Audio; MediaPipe usage metrics → Google; in the remote demo everything between the laptop and the PC → Cloudflare). Update `EXTERNAL_DEPENDENCIES.md` whenever an external dependency, model, asset, service or AI tool changes.
 - Analysis: she states only the verified fact sheet and what her tools look up in the analysis (grounding check on every analysis answer — add missing totals to the sheet, never loosen the check); finding IDs may arrive as spoken words; TEST fixtures stay labelled and tests never contact the county; records are identified by project ID, never object ID; data-flow wording names ArcGIS, OpenAI and OpenStreetMap tiles.
+- Hackathon hub: only a scrubbed signature of an error is searched (never their paths, hosts, ports, e-mails, keys); every source is verified and audited; she states only the hub sheet, her look-ups and the learner's own words (grounding covers versions and S/L/P/M/K IDs); Stack Overflow excerpts keep author + licence; no sample entries — the board holds only what real people wrote (a card's GitHub read only with its box ticked; the contact line never goes to the LLM); people from public sources (GitHub profiles by language + the event's city, Stack Overflow's top answerers) are real leads labelled "not at this event", read only from public profiles — never e-mails, links, company, social accounts or bio text, never combined across sources; TEST fixtures stay labelled and tests never go online; the board file (`backend/data/`) stays git-ignored.
 - Simulation input must stay labelled; unknown must never become "neutral"; nothing is reported before calibration; the prompt note must contain no numbers and describes how the learner *looks* (her view on the call), never what they feel; the UI keeps labelling every reading as an estimate.
 - Commit or push only when the user asks.

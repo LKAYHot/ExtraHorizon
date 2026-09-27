@@ -3,7 +3,8 @@
   import { renderMarkdown } from '$lib/markdown.js'
   import { hideOpenCue } from '$lib/cues.js'
   import { COLOR, LABEL } from '$lib/emotions.js'
-  import { RefreshCw, CircleAlert, Mic, ScanFace, ChevronDown, Hand, AudioLines, Construction, Check, LoaderCircle, MapIcon, Search } from '$lib/icons.js'
+  import { RefreshCw, CircleAlert, Mic, ScanFace, ChevronDown, Hand, AudioLines, Construction, Check, LoaderCircle, MapIcon, Search, LifeBuoy, Users, BookOpen, Rocket } from '$lib/icons.js'
+  import { refsOf } from '$lib/hub.svelte.js'
   import Logo from './Logo.svelte'
 
   let { m, isLast = false } = $props()
@@ -12,22 +13,33 @@
   const html = $derived(m.role === 'assistant'
     ? renderMarkdown(streaming ? hideOpenCue(m.text) : m.text, {
       // "F12" in an older answer is the old F12: buttons only while the panel shows the report it was about
-      fids: !!m.analysis?.report_id && m.analysis.report_id === app.coordReport?.id }) : '')
-  const tools = $derived(m.role === 'assistant' ? (m.analysis?.tools ?? []) : [])
-  // a finding ID in her answer shows that finding on the map
+      fids: !!m.analysis?.report_id && m.analysis.report_id === app.coordReport?.id,
+      // …and "S2" only while the hub shows the search this answer was about
+      hids: m.hub?.report_id && m.hub.report_id === app.hub.report?.id ? new Set(refsOf(app.hub.report)) : null }) : '')
+  const tools = $derived(m.role === 'assistant' ? (m.analysis?.tools ?? m.hub?.tools ?? []) : [])
+  // a finding ID in her answer shows that finding on the map; a hub ID shows that result
   function onBodyClick(e) {
     const b = e.target?.closest?.('[data-fid]')
     if (b) app.selectFinding(b.dataset.fid)
+    const h = e.target?.closest?.('[data-hid]')
+    if (h) app.hub.select(h.dataset.hid)
   }
   const TOOL_LABEL = { find_findings: 'looked up', get_project: 'looked up project', show_on_map: 'showed on the map',
-                       recheck_finding: 're-checked live' }
+                       recheck_finding: 're-checked live', get_hub_item: 'looked up', search_public_help: 'searched public sources for',
+                       find_people: 'looked on the board for', learning_resources: 'looked for resources on' }
+  const hub = $derived(m.role === 'assistant' ? m.hub : null)
+  const hubLive = $derived(hub?.live)
+  const HUB_RUNNING = { unstuck: 'Searching Stack Overflow, GitHub and the package registries — and this event’s board…',
+                        learn: 'Looking for starters, articles and top questions…', team: 'Looking at the board for teammates…',
+                        mentors: 'Looking at the board for mentors…' }
+  const HUB_TITLE = { unstuck: 'Get unstuck', learn: 'Learn', team: 'Teammates', mentors: 'Mentors', ship: 'Ship status' }
   const speaking = $derived(
     m.role === 'assistant' && m.turn_no != null && app.voice.playing && app.voice.playingKind === 'answer' && app.voice.playingTurn === m.turn_no,
   )
   const ctx = $derived(m.emotion_context)
   const an = $derived(m.role === 'assistant' ? m.analysis : null)
   const live = $derived(an?.live)
-  const check = $derived(an?.check)
+  const check = $derived(an?.check ?? hub?.check)
   let showCtx = $state(false)
   // only the latest typed answer is retryable — re-running an older one would reorder the history
   const canRetry = $derived(isLast && !!m.request && m.error?.code !== 'reset' && m.error?.status !== 409 && m.error?.status !== 422)
@@ -69,6 +81,29 @@
           {/if}
         </div>
       {/if}
+      {#if hub?.mode === 'run'}
+        {@const running = hub.kind !== 'ship' && (hubLive ? hubLive.state === 'running' || hubLive.state === 'progress' : streaming)}
+        <div class="an-card hub" data-testid="hub-card" data-state={running ? 'running' : (hubLive?.state ?? 'done')}>
+          {#if hub.kind === 'team' || hub.kind === 'mentors'}<Users size={14} />{:else if hub.kind === 'learn'}<BookOpen size={14} />{:else if hub.kind === 'ship'}<Rocket size={14} />{:else}<LifeBuoy size={14} />{/if}
+          <div class="an-text">
+            {#if running}
+              <span class="an-t"><LoaderCircle size={12} class="spin" /> {HUB_RUNNING[hub.kind] ?? 'Searching…'}</span>
+            {:else if hubLive?.state === 'error'}
+              <span class="an-t warn">Search failed: {hubLive.message}</span>
+            {:else if hubLive?.state === 'cancelled'}
+              <span class="an-t">The search was stopped before it finished.</span>
+            {:else if hubLive?.state === 'ready' && hub.kind !== 'ship'}
+              {@const n = hub.kind === 'mentors' ? hubLive.mentors : hubLive.items}
+              <span class="an-t">{HUB_TITLE[hub.kind]} — {n} {hub.kind === 'team' ? 'match' : hub.kind === 'mentors' ? 'mentor' : 'verified result'}{n === 1 ? '' : (hub.kind === 'team' ? 'es' : 's')}{#if hubLive.peers}{' · '}{hubLive.peers} from peers here{/if}{#if hubLive.mentors && hub.kind !== 'mentors'}{' · '}{hubLive.mentors} mentor{hubLive.mentors === 1 ? '' : 's'}{/if}{#if hubLive.errors}{' · '}<b class="warn">{hubLive.errors} source{hubLive.errors === 1 ? '' : 's'} unreachable</b>{/if}{#if hubLive.offline}{' · '}<b class="warn">test fixture</b>{/if}</span>
+            {:else}
+              <span class="an-t">Hackathon hub · {HUB_TITLE[hub.kind] ?? ''}</span>
+            {/if}
+          </div>
+          {#if !running && hubLive?.state !== 'error' && hubLive?.state !== 'cancelled'}
+            <button class="btn sm" onclick={() => { app.view = 'hub'; if (hub.kind === 'ship') app.hub.tab = 'ship' }} data-testid="hub-open"><LifeBuoy size={12} /> Hub</button>
+          {/if}
+        </div>
+      {/if}
       {#if tools.length}
         <div class="tools" data-testid="tool-tags">
           {#each tools as t, i (i)}
@@ -102,10 +137,10 @@
           {#if m.interrupted}<span class="tag int" data-testid="interrupted-tag"><Hand size={11} /> interrupted</span>{/if}
           {#if check}
             {#if check.ok}
-              <span class="tag grounded" data-testid="grounding-ok" title="Every number, date and finding ID in this answer was found in the verified analysis">
+              <span class="tag grounded" data-testid="grounding-ok" title="Every number, version, date and ID in this answer was found in the verified data">
                 <Check size={11} /> {check.checked} figures match the verified data</span>
             {:else}
-              <span class="tag ungrounded" data-testid="grounding-bad" title="Not found in the verified analysis — treat these with caution">
+              <span class="tag ungrounded" data-testid="grounding-bad" title="Not found in the verified data — treat these with caution">
                 <CircleAlert size={11} /> not in the verified data: {check.unknown.join(', ')}</span>
             {/if}
           {/if}

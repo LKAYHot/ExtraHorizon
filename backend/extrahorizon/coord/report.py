@@ -127,8 +127,22 @@ _MON = r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?"
 _MDY = re.compile(rf"\b{_MON}\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})\b", re.I)
 _DMY = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+{_MON},?\s+(\d{{4}})\b", re.I)
 _MY = re.compile(rf"\b{_MON},?\s+(\d{{4}})\b", re.I)
+# a day without its year ("last push on September 26", "26 Sep") — the same day as a date in the sheet
+_MD = re.compile(rf"\b{_MON}\s+(\d{{1,2}})(?:st|nd|rd|th)?\b(?![,.]?\s*\d)", re.I)
+_DM = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+{_MON}\b(?![,.]?\s*\d)", re.I)
 _PCT = re.compile(r"(?<![\w.,])(\d+(?:\.\d+)?)\s*(?:%|percent\b|per cent\b)", re.I)
 _FID = re.compile(r"\b[Ff]\d{1,6}\b")
+# a version (4.12.0.88) is one figure, not three — also at the end of a sentence ("… 18.2.0.")
+_VER = re.compile(r"(?<![\w.])v?\d+(?:\.\d+){2,}(?!\w|\.\d)")
+_FENCED = re.compile(r"```.*?```", re.S)
+# typography a model uses inside figures: "2026‑09‑26" with non-breaking hyphens, "3 211" with a narrow space
+_DIGIT_DASH = re.compile(r"(?<=\d)[\u2010\u2011\u2012\u2013\u2212](?=\d)")
+_DIGIT_SPACE = re.compile(r"(?<=\d)[\u00a0\u2009\u202f](?=\d{3}(?!\d))")
+# a link is not a figure (the numbers in its path are IDs — never facts of the sheet either)
+_LINK = re.compile(r"https?://[^\s<>()\[\]\"']+")
+# letters glued to a number that still make it a figure ("10km", "5k", "3x")
+_GLUED_UNITS = {"k", "m", "b", "km", "ms", "s", "h", "hr", "hrs", "min", "mins", "gb", "mb", "kb", "tb", "x", "ft", "mi",
+                "px", "pm", "am", "st", "nd", "rd", "th"}
 _QUOTED = re.compile(r'"([^"]{3,})"')
 _PID = re.compile(r"\(project ([^,()]+),")
 _TOKEN = re.compile(r"[A-Za-z]+|\d[\d,]*(?:\.\d+)?")
@@ -161,6 +175,13 @@ def _dates(text: str) -> tuple[list[tuple[str, str]], str]:
     text = _MDY.sub(lambda m: take(m, f"{m.group(3)}-{_month(m.group(1)):02d}-{int(m.group(2)):02d}"), text)
     text = _DMY.sub(lambda m: take(m, f"{m.group(3)}-{_month(m.group(2)):02d}-{int(m.group(1)):02d}"), text)
     text = _MY.sub(lambda m: take(m, f"{m.group(2)}-{_month(m.group(1)):02d}"), text)
+
+    def day_only(m: re.Match[str], month: str, day: str) -> str:
+        d = int(day)
+        return take(m, f"--{_month(month):02d}-{d:02d}") if 1 <= d <= 31 else m.group(0)
+
+    text = _MD.sub(lambda m: day_only(m, m.group(1), m.group(2)), text)
+    text = _DM.sub(lambda m: day_only(m, m.group(2), m.group(1)), text)
     return found, text
 
 
@@ -188,39 +209,71 @@ def _mask(text: str, strings: list[str]) -> str:
     return text
 
 
-def grounding_check(answer: str, sheet: str) -> dict[str, Any]:
-    """Figures in the answer that the fact sheet does not contain: numbers ≥ 10 (also with units), dates in any
-    common form, percentages (the sheet has none — she must not compute them) and finding IDs. Numbers that are
-    part of a project's name or ID count only in that context ("SR 826", "48-inch", "project 20018")."""
-    names = _QUOTED.findall(sheet)
-    pids = [p.strip() for p in _PID.findall(sheet)]
-    sheet_dates, sheet_rest = _dates(sheet)
-    allowed_dates = {iso for _w, iso in sheet_dates}
+def grounding_check(answer: str, sheet: str, ids: re.Pattern[str] = _FID, allowed_ids: set[str] | None = None,
+                    allowed_pct: set[str] | None = None) -> dict[str, Any]:
+    """Figures in the answer that the fact sheet does not contain: numbers ≥ 10 (also with units), versions, dates in
+    any common form, percentages (the sheet has none — she must not compute them; ``allowed_pct``: the learner's own)
+    and IDs (``ids``: finding IDs by default; the hackathon hub passes its own S/L/P/M/K IDs and, as
+    ``allowed_ids``, the IDs its sheet really lists). Numbers that are part of a project's name or ID count only in
+    that context ("SR 826", "48-inch", "project 20018"); a whole number rounded from one in the sheet is the same
+    figure ("about 5 hours" for 5.3). Code blocks count for their figures but never pair quotes with the prose."""
+    answer = _LINK.sub(" ", _DIGIT_SPACE.sub("", _DIGIT_DASH.sub("-", answer)))
+    sheet = _LINK.sub(" ", _DIGIT_SPACE.sub("", _DIGIT_DASH.sub("-", sheet)))
+    code = " ".join(_FENCED.findall(sheet))
+    prose = _FENCED.sub(" ", sheet)
+    names = _QUOTED.findall(prose)
+    pids = [p.strip() for p in _PID.findall(prose)]
+    sheet_dates, sheet_rest = _dates(prose)
+    allowed_dates = {iso for _w, iso in sheet_dates if not iso.startswith("--")}
     allowed_months = {iso[:7] for iso in allowed_dates}
     allowed_years = {iso[:4] for iso in allowed_dates}
+    allowed_days = {"-" + iso[4:] for iso in allowed_dates if len(iso) == 10} | {iso for _w, iso in sheet_dates if iso.startswith("--")}
     facts = {_norm(m.group(1)) for m in _NUM.finditer(_mask(sheet_rest, names + pids))}
+    facts |= {_norm(m.group(1)) for m in _NUM.finditer(code)}
+    for f in list(facts):
+        if "." in f:
+            try:
+                x = float(f)
+            except ValueError:
+                continue
+            facts |= {str(round(x)), str(int(x))}
     keys = _name_keys(names + [f"project {p}" for p in pids])
-    allowed_ids = {f.upper() for f in _FID.findall(sheet)}
+    if allowed_ids is None:
+        allowed_ids = {f.upper() for f in ids.findall(sheet)}
+    allowed_ids = {x.upper() for x in allowed_ids}
+    versions = {v.lstrip("v").rstrip(".") for v in _VER.findall(sheet)}
     unknown: list[str] = []
     checked = 0
+    for v in _VER.findall(answer):
+        checked += 1
+        if v.lstrip("v").rstrip(".") not in versions:
+            unknown.append(v)
+    answer = _VER.sub(" ", answer)
     found, rest = _dates(answer)
     for written, iso in found:
         checked += 1
-        if not (iso in allowed_dates if len(iso) == 10 else iso in allowed_months):
+        ok = iso in allowed_days if iso.startswith("--") else (iso in allowed_dates if len(iso) == 10 else iso in allowed_months)
+        if not ok:
             unknown.append(written.strip())
-    for fid in _FID.findall(rest):
+    for fid in ids.findall(rest):
         checked += 1
         if fid.upper() not in allowed_ids:
             unknown.append(fid.upper())
-    rest = _FID.sub(" ", rest)
+    rest = ids.sub(" ", rest)
     for m in _PCT.finditer(rest):
         checked += 1
-        unknown.append(m.group(0).strip())
+        if _norm(m.group(1)) not in (allowed_pct or set()):
+            unknown.append(m.group(0).strip())
     rest = _PCT.sub(" ", _mask(rest, names + pids))
-    toks = _TOKEN.findall(rest)
+    spans = list(_TOKEN.finditer(rest))
+    toks = [m.group(0) for m in spans]
     for i, t in enumerate(toks):
         if not t[0].isdigit():
             continue
+        a, b = spans[i].start(), spans[i].end()
+        glued_after = re.match(r"[A-Za-z]+", rest[b:])
+        if (a > 0 and rest[a - 1].isalpha()) or (glued_after and glued_after.group(0).lower() not in _GLUED_UNITS):
+            continue  # part of a name, a login or an ID ("@Xivaldivia26", "gpt5", "M2") — not a figure
         n = _norm(t)
         prev = toks[i - 1].lower() if i > 0 and toks[i - 1][0].isalpha() else ""
         nxt = toks[i + 1].lower() if i + 1 < len(toks) and toks[i + 1][0].isalpha() else ""

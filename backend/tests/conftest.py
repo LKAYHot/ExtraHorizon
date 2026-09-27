@@ -47,6 +47,9 @@ def make_settings(**overrides: Any) -> Settings:
         stt_final_timeout_s=1.5,
         # the utility-coordination analysis reads the synthetic fixtures — tests never go online
         coord_offline_dir=Path(__file__).parent / "fixtures" / "coord",
+        # …and the hackathon hub its synthetic fixtures, with a board in memory (never the real board file)
+        hub_offline_dir=Path(__file__).parent / "fixtures" / "hub",
+        hub_board_path=None,
     )
     base.update(overrides)
     return Settings(_env_file=None, **base)

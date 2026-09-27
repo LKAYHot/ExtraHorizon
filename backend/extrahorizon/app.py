@@ -12,7 +12,7 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response, WebSocket
@@ -59,6 +59,7 @@ class ChatRequest(BaseModel):
     message: str | None = Field(default=None, max_length=4000)
     subject: str | None = Field(default=None, max_length=40)
     analysis: bool = False  # run the utility-coordination analysis before answering
+    hub: Literal["unstuck", "learn", "team", "mentors", "ship"] | None = None  # a hackathon-hub search first
 
 
 class AnalyzeRequest(BaseModel):
@@ -99,6 +100,7 @@ class Services:
     stt_factory: Any = None
     vad_factory: Any = None
     coord: Any = None  # utility-coordination analysis (coord/service.py)
+    hub: Any = None  # hackathon hub (hub/service.py)
     vad_ok: bool = False
     vad_reason: str | None = "starting"
 
@@ -183,6 +185,7 @@ def create_app(
     stt_factory: Any = None,
     vad_factory: Any = None,
     coord: Any = None,
+    hub: Any = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     llm = llm or create_llm(settings)
@@ -193,6 +196,10 @@ def create_app(
         from .coord.service import CoordService
 
         services.coord = coord if coord is not None else CoordService(settings)
+    if settings.hub_enabled:
+        from .hub.service import HubService
+
+        services.hub = hub if hub is not None else HubService(settings)
     store = SessionStore(settings)
     boot_id = secrets.token_hex(8)
 
@@ -238,6 +245,8 @@ def create_app(
             await tts.aclose()
             if services.coord is not None:
                 await services.coord.aclose()
+            if services.hub is not None:
+                await services.hub.aclose()
             vision.shutdown()
 
     app = FastAPI(
@@ -337,6 +346,11 @@ def create_app(
             "fillers": services.fillers.state,
             "coord": {"enabled": services.coord is not None,
                       "offline": bool(services.coord is not None and services.coord.offline)},
+            "hub": {"enabled": services.hub is not None,
+                    "offline": bool(services.hub is not None and services.hub.offline),
+                    "public_people": bool(services.hub is not None and settings.hub_public_people),
+                    "event_location": settings.hub_event_location or None,
+                    "github_token": bool(settings.github_token and settings.github_token.get_secret_value().strip())},
             "sessions": len(store),
             "client": {"transport": transport(request.scope)},
         }
@@ -366,11 +380,13 @@ def create_app(
     @app.post("/api/chat")
     async def chat(req: ChatRequest) -> StreamingResponse:
         session = store.get_or_create(req.session_id)
-        plan = session.plan_chat(message=req.message, subject=req.subject, source="text", analysis=req.analysis)
+        plan = session.plan_chat(message=req.message, subject=req.subject, source="text", analysis=req.analysis,
+                                 hub=req.hub)
         log.info("chat %s session=%s… chars=%d", plan.request_id, session.id[:8], len(plan.user_msg["text"]))
         # typed questions are answered in text over SSE and, if the voice socket is open,
         # spoken through it as well
-        runner = TurnRunner(session, plan, llm, settings, tts, session.live_conn, coord=services.coord)
+        runner = TurnRunner(session, plan, llm, settings, tts, session.live_conn, coord=services.coord,
+                            hub=services.hub)
 
         async def stream() -> AsyncIterator[bytes]:
             async for name, data in runner.events():
@@ -471,6 +487,11 @@ def create_app(
             return await svc.recheck(session.analysis, req.finding_id)
         except KeyError as e:
             raise ApiError(404, "no_finding", f"No finding {req.finding_id} in this analysis.") from e
+
+    # ------------------------------------------------------------------ hackathon hub (hub/routes.py)
+    from .hub.routes import register as register_hub
+
+    register_hub(app, store, services)
 
     @app.websocket("/api/vision")
     async def vision_socket(ws: WebSocket) -> None:

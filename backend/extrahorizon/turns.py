@@ -29,6 +29,8 @@ from .context import after_tools_note
 from .coord.refs import finding_ids, project_refs
 from .coord.report import grounding_check
 from .coord.tools import TOOL_SPECS, ToolRunner
+from .hub.report import HUB_IDS, hub_grounding
+from .hub.tools import HUB_TOOL_SPECS, HubToolRunner
 from .llm import BaseLLM, LLMError, StreamInfo, ToolCalls, map_openai_error
 from .sessions import ChatCancelled, ChatPlan, Session
 from .voice.fish import TtsEngine, TtsError
@@ -38,6 +40,7 @@ HEARTBEAT_S = 5.0  # an analysis waiting on the county's services still sends pr
 MAX_TOOL_ROUNDS = 3  # look-ups per answer (then she answers with what she has)
 TOOL_TIMEOUT_S = 20.0  # one look-up at most (a live re-check reads the county's service)
 ANALYSIS_KEYS = ("mode", "report_id", "check", "live", "tools")  # what an answer keeps about its analysis
+HUB_KEYS = ("mode", "kind", "report_id", "check", "live", "tools")  # …and about a hackathon-hub search
 _FID_TEXT = re.compile(r"\bF\d{1,6}\b")
 REPORT_CUT_NOTE = ("\n\n*(The written report stops here: it reached its length limit. The map and the "
                    "Findings tab list every finding.)*")
@@ -194,9 +197,11 @@ class Speaker:
 
 class TurnRunner:
     def __init__(self, session: Session, plan: ChatPlan, llm: BaseLLM, settings: Any,
-                 tts: TtsEngine | None = None, sink: AudioSink | None = None, coord: Any = None) -> None:
+                 tts: TtsEngine | None = None, sink: AudioSink | None = None, coord: Any = None,
+                 hub: Any = None) -> None:
         self.session = session
         self.coord = coord  # the utility-coordination analysis service (coord/service.py)
+        self.hub = hub  # the hackathon hub (hub/service.py)
         self.plan = plan
         self.llm = llm
         self.s = settings
@@ -204,7 +209,7 @@ class TurnRunner:
         self.sink = sink
         self._q: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
         self.speaker: Speaker | None = None
-        self.tools: ToolRunner | None = None
+        self.tools: ToolRunner | HubToolRunner | None = None
         self._focused = False  # the map already follows this turn (question, a look-up or her answer)
         self._picked = False  # her answer has moved the map (once per question / look-up)
         self._answer_from = 0  # her answer after the last look-up starts at this part
@@ -314,12 +319,77 @@ class TurnRunner:
         put(("analysis", an["live"]))
         plan.llm_messages = session.analysis_messages(plan, report)
 
+    async def _run_hub(self) -> None:
+        """A hub turn: search the public sources (or the board) first, then answer from what was verified."""
+        plan, session = self.plan, self.session
+        put = self._q.put_nowait
+        h = plan.hub if plan.hub is not None else {}
+        kind = h.get("kind", "unstuck")
+        if not plan.gate.is_set():
+            # asked out loud: search only once the final transcript confirms the question
+            await self._await_release(self.s.stt_final_timeout_s + 5.0)
+        put(("hub", {"state": "running", "kind": kind}))
+        h["started"] = True
+        report: dict[str, Any]
+        if self.hub is None:
+            report = {"error": "the hackathon hub is not enabled on this server"}
+        else:
+            def progress(m: dict[str, Any]) -> None:
+                put(("hub", {**m, "state": "progress", "kind": kind, "phase": m.get("state")}))
+            if kind in ("team", "mentors"):  # the board, then public GitHub profiles / Stack Overflow's experts
+                job = self.hub.people(plan.build["text"], self.hub.board.mine(session.hub_token), kind,
+                                      progress=progress)
+            elif kind == "unstuck":  # (their own open request is not "another team stuck on this")
+                job = self.hub.unstuck(plan.build["text"], progress=progress,
+                                       owner=self.hub.board.owner_of(session.hub_token))
+            else:
+                job = self.hub.learn(plan.build["text"], progress=progress)
+            task = asyncio.ensure_future(job)
+            stop = asyncio.ensure_future(plan.cancel.wait())
+            try:
+                while not task.done() and not stop.done():
+                    await asyncio.wait({task, stop}, timeout=HEARTBEAT_S, return_when=asyncio.FIRST_COMPLETED)
+                    if not task.done() and not stop.done():  # a slow source: keep the stream alive
+                        put(("hub", {"state": "progress", "kind": kind, "phase": "waiting", "step": "wait"}))
+            finally:
+                stop.cancel()
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(BaseException):
+                    await task
+                raise ChatCancelled(plan.cancel_reason[0] if plan.cancel_reason else "superseded")
+            try:
+                report = task.result()
+            except Exception as e:  # noqa: BLE001 — say it failed; never make up results
+                log.exception("hub search failed")
+                report = {"error": f"the search failed on the server ({type(e).__name__})"}
+        if report.get("error"):
+            h["live"] = {"state": "error", "kind": kind, "message": report["error"]}
+        else:
+            if session.is_current(plan):
+                session.hub_report = report
+                if kind == "unstuck":  # the Ship tab counts how long this roadblock blocks them
+                    session.ship.open_roadblock((report.get("query") or {}).get("text") or plan.build["text"][:120],
+                                                report["id"])
+            h["report_id"] = report["id"]
+            h["live"] = {"state": "ready", "report_id": report["id"], "kind": kind,
+                         "items": len(report.get("items") or []), "peers": len(report.get("peers") or []),
+                         "mentors": len(report.get("mentors") or []), "errors": len(report.get("errors") or []),
+                         "offline": report.get("offline", False)}
+        put(("hub", h["live"]))
+        plan.llm_messages = session.hub_messages(plan, report)
+
     # ------------------------------------------------------------------ tools and the map
-    def _tool_runner(self) -> ToolRunner | None:
-        """Her look-ups for an analysis answer (the whole analysis on screen, not only the fact sheet)."""
-        report = self.session.analysis
-        if not self.plan.analysis or self.coord is None or not report or report.get("error"):
-            return None
+    def _tool_runner(self) -> ToolRunner | HubToolRunner | None:
+        """Her look-ups for an analysis or hub answer (everything on screen, not only the fact sheet)."""
+        if self.plan.hub:
+            report = self.session.hub_report
+            if self.hub is None or not report or report.get("error") or self.plan.hub.get("kind") == "ship":
+                return None
+        else:
+            report = self.session.analysis
+            if not self.plan.analysis or self.coord is None or not report or report.get("error"):
+                return None
 
         def emit(event: str, data: dict[str, Any]) -> None:
             plan = self.plan
@@ -331,12 +401,22 @@ class TurnRunner:
                     self._picked = False  # a new look-up: what she says next may pick one of its findings
             self._q.put_nowait((event, data))
 
+        if self.plan.hub:
+            def followed(new: dict[str, Any]) -> None:
+                # a follow-up search replaced the results: her answer's IDs are about the new ones
+                if self.plan.cancel.is_set() or not self.session.is_current(self.plan):
+                    return
+                if self.plan.hub is not None:
+                    self.plan.hub["report_id"] = new["id"]
+                if new.get("kind") == "unstuck":
+                    self.session.ship.open_roadblock((new.get("query") or {}).get("text") or "a roadblock", new["id"])
+            return HubToolRunner(report, self.hub, self.session, emit, on_report=followed)
         return ToolRunner(report, self.coord, emit)
 
     def _facts(self) -> str:
         """What she may state: the fact sheet and everything her tools returned."""
         extra = "\n".join(self.tools.facts) if self.tools is not None else ""
-        return f"{self.plan.analysis_sheet or ''}\n{extra}"
+        return f"{self.plan.analysis_sheet or self.plan.hub_sheet or ''}\n{extra}"
 
     def _focus_question(self) -> None:
         """The map follows the question at once: "what about F146?" (also spoken), a project ID."""
@@ -344,6 +424,11 @@ class TurnRunner:
         if t is None:
             return
         q = self.plan.user_msg["text"]
+        if self.plan.hub:  # "what does S2 say?", "tell me about P1"
+            refs = [m.group(0) for m in HUB_IDS.finditer(q) if m.group(0) in t.by_id]
+            if refs:
+                t.focus(list(dict.fromkeys(refs)), ", ".join(dict.fromkeys(refs)), source="question")
+            return
         ids = [i for i in finding_ids(q) if i in t.by_id]
         if ids:
             t.focus(ids, ", ".join(ids), source="question")
@@ -362,7 +447,7 @@ class TurnRunner:
         if t is None or self._picked or (self._focused and not t.spot):
             return
         text = "".join(parts[max(self._answer_from, len(parts) - 40):])
-        for x in _FID_TEXT.finditer(text):
+        for x in (HUB_IDS if self.plan.hub else _FID_TEXT).finditer(text):
             fid = x.group(0)
             # an ID at the very end may still be growing ("F114" + "6" = F1146): only one followed by something counts
             if x.end() >= len(text) or fid not in t.by_id or (self._focused and fid not in t.spot):
@@ -407,6 +492,10 @@ class TurnRunner:
         if an and an.get("started") and not an.get("live"):
             an["live"] = {"state": "cancelled"}
             self._q.put_nowait(("analysis", an["live"]))
+        h = self.plan.hub
+        if h and h.get("started") and not h.get("live"):
+            h["live"] = {"state": "cancelled", "kind": h.get("kind")}
+            self._q.put_nowait(("hub", h["live"]))
 
     async def _produce(self) -> None:
         plan, session, llm, s = self.plan, self.session, self.llm, self.s
@@ -422,11 +511,18 @@ class TurnRunner:
                 raise LLMError("llm_not_configured", "OPENAI_API_KEY is not set on the server. Put it in .env and restart.", False)
             if plan.analysis and plan.analysis.get("mode") == "run":
                 await self._run_analysis()
+            hub_kind = (plan.hub or {}).get("kind")
+            if plan.hub and plan.hub.get("mode") == "run" and hub_kind != "ship":
+                await self._run_hub()
+            elif hub_kind == "ship":
+                put(("hub", {"state": "ready", "kind": "ship", "report_id": None}))
+            research = bool(plan.analysis or plan.hub)  # a grounded answer: a spoken summary, then written details
             t_llm = time.monotonic()  # the LLM's time budget (and its first-token time) starts after the analysis
-            total_s = s.coord_llm_total_timeout_s if plan.analysis else s.llm_total_timeout_s
+            total_s = (s.coord_llm_total_timeout_s if plan.analysis else
+                       s.hub_llm_total_timeout_s if plan.hub else s.llm_total_timeout_s)
             if self.voice:
                 self.speaker = Speaker(self.tts, self.sink, plan, s, session,  # type: ignore[arg-type]
-                                       first_paragraph_only=bool(plan.analysis))
+                                       first_paragraph_only=research)
                 if not await self.speaker.start():
                     self.speaker = None
             self.tools = self._tool_runner()
@@ -435,12 +531,15 @@ class TurnRunner:
             rounds = 0
             # her tools serve follow-ups: the first report is written from the fact sheet, which already holds
             # everything it covers (look-ups there only made it slower and longer); the map follows it anyway
-            offer = self.tools is not None and (plan.analysis or {}).get("mode") == "context"
+            offer = self.tools is not None and "context" in ((plan.analysis or {}).get("mode"),
+                                                             (plan.hub or {}).get("mode"))
+            specs = HUB_TOOL_SPECS if plan.hub else TOOL_SPECS
+            max_out = s.coord_max_output_tokens if plan.analysis else s.hub_max_output_tokens if plan.hub else None
             while True:  # one LLM call per round; a round that asks for tools gets their results and goes on
                 # after the last look-up round the tools stay declared (the history has tool calls) but are off
-                tools = TOOL_SPECS if offer else None
+                tools = specs if offer else None
                 choice = "auto" if rounds < MAX_TOOL_ROUNDS else "none"
-                agen = llm.stream(messages, max_tokens=s.coord_max_output_tokens if plan.analysis else None,
+                agen = llm.stream(messages, max_tokens=max_out,
                                   **({"tools": tools, "tool_choice": choice} if tools else {}))
                 calls: tuple[dict[str, str], ...] = ()
                 said: list[str] = []
@@ -500,7 +599,7 @@ class TurnRunner:
                         put(("tool", dict(self.tools.used[-1])))
                 messages.append({"role": "system", "content": after_tools_note(plan.user_msg["text"])})
                 self._answer_from = len(parts)  # what she names from here on is about these look-ups
-            if plan.analysis and info.finish_reason == "length" and parts:
+            if research and info.finish_reason == "length" and parts:
                 # the written report hit its token budget: say so rather than stop mid-sentence
                 put(("delta", {"text": REPORT_CUT_NOTE}))
                 parts.append(REPORT_CUT_NOTE)
@@ -511,8 +610,10 @@ class TurnRunner:
             if plan.analysis and plan.analysis_sheet:
                 # every number, date and finding ID she wrote must come from the fact sheet or her look-ups
                 plan.analysis["check"] = grounding_check(text, self._facts())
+            if plan.hub and plan.hub_sheet:
+                plan.hub["check"] = hub_grounding(text, self._facts(), plan.user_msg["text"])
             if self.tools is not None and self.tools.used:
-                plan.analysis["tools"] = self.tools.used  # type: ignore[index]
+                (plan.analysis if plan.analysis is not None else plan.hub)["tools"] = self.tools.used  # type: ignore[index]
             if self.speaker is not None:
                 await self.speaker.finish()
             if not plan.gate.is_set():
@@ -528,6 +629,8 @@ class TurnRunner:
             log.info("turn %s done (%s) ttft=%sms", plan.turn_no, plan.source, done["ttft_ms"])
             if plan.analysis:
                 done["analysis"] = {k: v for k, v in plan.analysis.items() if k in ANALYSIS_KEYS}
+            if plan.hub:
+                done["hub"] = {k: v for k, v in plan.hub.items() if k in HUB_KEYS}
             put(("done", done))
         except ChatCancelled as c:
             if self.speaker is not None:
@@ -542,14 +645,18 @@ class TurnRunner:
                 if partial:
                     if plan.analysis and plan.analysis_sheet:
                         plan.analysis["check"] = grounding_check(partial, self._facts())
-                    if plan.analysis and self.tools is not None and self.tools.used:
-                        plan.analysis["tools"] = self.tools.used
+                    if plan.hub and plan.hub_sheet:
+                        plan.hub["check"] = hub_grounding(partial, self._facts(), plan.user_msg["text"])
+                    if self.tools is not None and self.tools.used:
+                        (plan.analysis if plan.analysis is not None else plan.hub)["tools"] = self.tools.used  # type: ignore[index]
                     done = session.commit_chat(plan, partial, model=info.model,
                                                ttft_ms=None if ttft is None else int(ttft * 1000),
                                                elapsed_ms=int((time.monotonic() - t0) * 1000), interrupted=True)
                     committed = True
                     if plan.analysis:
                         done["analysis"] = {k: v for k, v in plan.analysis.items() if k in ANALYSIS_KEYS}
+                    if plan.hub:
+                        done["hub"] = {k: v for k, v in plan.hub.items() if k in HUB_KEYS}
                     put(("interrupted", done))
                 else:
                     put(("error", {"code": "interrupted", "message": "Interrupted.", "retryable": True}))

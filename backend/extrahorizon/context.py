@@ -174,6 +174,8 @@ def build_messages(
     voice: bool = False,
     analysis_sheet: str | None = None,
     analysis_mode: str | None = None,
+    hub_sheet: str | None = None,
+    hub_note: str | None = None,
 ) -> list[dict[str, str]]:
     """Chat Completions ``messages`` for one request. Only text from the history is used;
     ids, timings and emotion metadata stored with past messages never reach the model.
@@ -188,21 +190,26 @@ def build_messages(
         msgs.append({"role": m["role"], "content": text})
     if analysis_sheet:
         msgs.append({"role": "system", "content": analysis_sheet})
+    if hub_sheet:
+        msgs.append({"role": "system", "content": hub_sheet})
     note = emotion_note(emotion_context)
     if note:
         msgs.append({"role": "system", "content": note})
+    research = bool(analysis_mode or hub_note)  # a grounded answer: the analysis or the hackathon hub
     if analysis_mode == "run":
         reply = ANALYSIS_REPLY_NOTE
     elif analysis_mode == "context":
         reply = ANALYSIS_FOLLOWUP_NOTE
+    elif hub_note:
+        reply = hub_note  # (already carries the language rule for this message)
     else:
         reply = REPLY_NOTE_VOICE if voice else REPLY_NOTE_TEXT
     if analysis_mode:
         reply = reply.replace(ANALYSIS_LANGUAGE, analysis_language(user_text))
-    if analysis_mode and voice:
+    if research and voice:
         reply = "[The learner said this out loud (speech-to-text, may contain small recognition errors).] " + reply
     msgs.append({"role": "system", "content": reply})
     msgs.append({"role": "user", "content": user_text})
-    if analysis_mode and _CYRILLIC.search(user_text or "") and not _ASKS_RUSSIAN.search(user_text or ""):
+    if research and _CYRILLIC.search(user_text or "") and not _ASKS_RUSSIAN.search(user_text or ""):
         msgs.append({"role": "system", "content": ANALYSIS_LANGUAGE_NOTE})
     return msgs

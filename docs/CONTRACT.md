@@ -1,4 +1,4 @@
-# ExtraHorizon — API & message contract (v2.3: calibrated emotions + voice + remote access + utility-coordination analysis)
+# ExtraHorizon — API & message contract (v2.4: calibrated emotions + voice + remote access + utility-coordination analysis + hackathon hub)
 
 The single source of truth for everything that crosses the frontend ⇄ backend boundary.
 Change it **first**, then both sides, then the tests (`backend/tests/test_api.py`,
@@ -22,6 +22,14 @@ in the demo build FastAPI serves the UI and the API from one origin.
 | `GET  /api/coord/report?session_id=…` · `DELETE …` | the session's analysis on screen · close it |
 | `POST /api/coord/recheck` | read one finding's two records again from the county's service |
 | `GET  /api/coord/finding?session_id=…&id=F450` | one finding of the analysis on screen (also one the panel does not list) |
+| `POST /api/hub/hello` | a session starts: this browser's board token, the board, the ship plan (docs/HUB.md) |
+| `GET  /api/hub/report?session_id=…` · `DELETE …` | the hub search on screen · close it |
+| `GET  /api/hub/board?session_id=…` | people, help requests and what teams learned |
+| `GET  /api/hub/questions?session_id=…` | real, still unsolved Stack Overflow questions in this browser's stack (the help board) |
+| `POST /api/hub/profile` · `DELETE /api/hub/profile?session_id=…` | this browser's card on the board |
+| `POST /api/hub/requests` · `…/{id}/claim` · `…/{id}/release` · `…/{id}/resolve` · `DELETE …/{id}` | help requests |
+| `POST /api/hub/cards` · `…/{id}/helpful` · `DELETE …/{id}` | what teams learned |
+| `GET  /api/hub/ship?session_id=…` · `POST /api/hub/ship` | the road to shipping |
 
 ## Sessions
 
@@ -64,6 +72,8 @@ in the demo build FastAPI serves the UI and the API from one origin.
   "stt":    {"provider": "openai", "model": "gpt-live-transcribe", "configured": true, "vad": true, "vad_reason": null},
   "fillers": "idle|preparing|ready|failed",
   "coord": {"enabled": true, "offline": false},   // the utility-coordination analysis (offline = TEST fixtures)
+  "hub": {"enabled": true, "offline": false, "public_people": true, "event_location": "Miami",
+          "github_token": false},   // the hackathon hub (people from public sources; where GitHub profiles are searched)
   "sessions": 1,
   "client": {"transport": "local|cloudflare|proxy|network"}   // how THIS request arrived
 }
@@ -73,7 +83,8 @@ in the demo build FastAPI serves the UI and the API from one origin.
 
 Request: `{"session_id": "…uuid…", "message": "Explain recursion to me.", "subject": "Computer Science", "analysis": false}`
 (`message` 1–4000 chars; `subject` optional; `analysis: true` runs the utility-coordination analysis before the
-answer — so does a message that asks for it, see below). HTTP errors before the stream: `422` with `{"code","message"}`
+answer — so does a message that asks for it, see below; `hub: "unstuck" | "learn" | "team" | "mentors" | "ship"`
+runs that hackathon-hub search first — so does a message the hub recognises, see *Hub turns*). HTTP errors before the stream: `422` with `{"code","message"}`
 (e.g. `empty_message`).
 
 | event | data |
@@ -86,6 +97,7 @@ answer — so does a message that asks for it, see below). HTTP errors before th
 | `focus` | the map follows the conversation: `{ids: ["F146"], total, label, project: uid|null, source: "question"|"tool"|"answer", report_id, findings: [finding objects the panel does not list], within?: true}` — at most 50 ids (`total` = how many matched); `within: true` = her answer picks one finding out of what the map already shows (the spotlight stays); a focus for another `report_id` than the panel's is dropped |
 | `tool` | she looked something up (follow-up analysis turns): `{name: "find_findings"|"get_project"|"show_on_map"|"recheck_finding", summary}` — the summary names the filters and a non-default order ("DTPW · Paving · closest first"); the same look-up twice in a turn is one tag |
 | `recheck` | a live re-check she ran: `{id: "F135", result: {…as POST /api/coord/recheck…}, report_id}` |
+| `hub` | only in a hub turn, before the first `delta`: `{state: "running", kind}` → `{state: "progress", kind, step: "signature" \| "stackoverflow" \| "github" \| "registries" \| "devto" \| "topic" \| "board" \| "wait", phase: "reading" \| "done" \| "failed", received?, kept?, query?, message?}` (a `team` search: board → github = public profiles; `mentors`: board → stackoverflow = top answerers) → `{state: "ready", kind, report_id, items, peers, mentors, errors, offline}` or `{state: "error", kind, message}`; `{state: "cancelled", kind}` when the turn ends first; a `ship` turn sends only `{state: "ready", kind: "ship", report_id: null}`. A `focus` with `kind: "hub"` names results of the hub search on screen (`ids: ["S2"]`) |
 | `working` | `{what: "look-up", name}` every 5 s while a look-up runs (a live re-check reads the county's service) — keeps the stream alive; clients may ignore it |
 | `analysis` | only in an analysis turn, before the first `delta`: `{state: "running"}` → `{state: "progress", phase, step, source?, title?, records?, message?}` (per layer read and per step; `phase: "waiting"` every 5 s while the county's service is slow) → `{state: "ready", report_id, findings, by_category, projects, plans, offline}` or `{state: "error", message}` (she then says plainly that it failed); `{state: "cancelled"}` when the turn ends before the analysis did (Stop, a newer question, an error) |
 
@@ -222,6 +234,73 @@ Server → client:
 
 Player rules (browser): frames of the current turn are scheduled back to back; a frame with a newer turn number
 cuts the older turn; frames of a stopped or older turn are dropped; `barge_in` stops everything.
+
+## Hub turns and routes (`/api/hub/*`, docs/HUB.md)
+
+**Hub turns.** A message is a hub turn when the analysis does not claim it and it is (strictly) a roadblock (an
+error with a failure, a pasted traceback or npm log — in English or Russian), a request for teammates / a role, for a
+mentor, for where to learn something, or about the deadline; or when `hub` is set. `run`: the search runs first
+(`hub` events), then her prompt holds the hub fact sheet (every result with its ID S/L/P/M/K, flags, excerpts with
+author and licence, the board's matching entries — never the contact line, one line per field
+under a header that marks them as data, never instructions — the audit, the sources that could not be read, the
+hub's 30-minute rule and the ship status) and the reply rules for that kind. `context`
+(a follow-up naming a result ID on screen, or "that answer", "who else …"): the same sheet, and tools
+`get_hub_item`, `search_public_help`, `find_people`, `learning_resources` (a new search replaces the results on
+screen and sends `hub` ready; `done.hub.report_id` is then the new report's). `meta.hub` = `{mode, kind,
+report_id}` or `null`; `done.hub` / `interrupted.hub` = `{mode, kind, report_id, live?, tools?, check}` — the
+grounding check (figures, versions as one figure, dates, hub IDs — only IDs that start a result line of the sheet;
+products named like IDs such as "Amazon S3" are not IDs) against the sheet, her look-ups and the learner's own
+message. Only her first paragraph is voiced;
+`max_completion_tokens` `EH_HUB_MAX_OUTPUT_TOKENS` (1800), total time `EH_HUB_LLM_TOTAL_TIMEOUT_S` (90 s). A spoken
+question searches only once the final transcript confirms it.
+
+The report (`GET /api/hub/report`): `{id, kind: "unstuck" | "learn" | "team" | "mentors", created, offline, query:
+{text, signature? | tags? | needs?, me?, location?, languages?}, items: [S… / L… / P…], peers: [K…], mentors: [M…],
+similar: [open requests about the same], hints: [from the error itself; for people: roles GitHub cannot show, GitHub's
+limit], audit: [{source, received, kept, excluded: {reason: n}, error}], errors: [{source, message}], sources}` — every
+entry has a `ref`. People (P…) and mentors (M…) carry `source`: `"board"` (a card: name, kind, skills, covers,
+evidence, availability, team, idea, contact — the contact never reaches the LLM) | `"github"` (a public profile: login,
+name, location, profile_url, covers, skills, evidence, last_push, own_repos, public_repos, followers, since, signals —
+words from the bio, never the bio —, hireable; never an e-mail, link, company or social account) | `"stackoverflow"`
+(a top answerer: user_id, name, profile_url, tag, answers, score, reputation, month_answers, active_this_month).
+Audit sources for people: `board`, `github_people`, `stackoverflow_experts`. No entry is ever a sample.
+
+Board writes carry the browser's token: the first write (`POST /api/hub/profile`, `/requests`, `/cards`) creates it
+and returns it once as `token`; the browser keeps it and sends it with **every** hub request as the `X-Hub-Token`
+header (and in `POST /api/hub/hello {"session_id", "token"?, "ship"?}` → `{board, ship, ship_state, report_id,
+offline, event_location, milestones}`), so a session the server lost still knows its entries. Only tokens this server issued
+are accepted back (any other is ignored); a client address (`cf-connecting-ip` behind the tunnel) gets
+`EH_HUB_NEW_IDS_PER_HOUR` (30) new ones an hour. `hello` restores `ship` only when the server's plan is empty.
+Entries in `board` never carry the owner; `mine: true` marks this browser's. Errors: `401 no_token`, `403 not_yours`,
+`404 no_request | no_card | no_roadblock | no_hub_report | hub_disabled`, `409 no_profile` (claiming and voting need
+a card) `| own_request | taken | board_full`, `413 too_large` (a hub request body over 64 KB), `422` validation
+(`bad_github`, `bad_deadline` — within 30 days, `bad_milestone`; lists over their item limits), `429
+too_many_identities`.
+
+* `POST /api/hub/profile {"session_id", kind: "hacker" | "mentor", name, contact?, skills?, looking_for?, interests?,
+  idea?, availability?, team: {name?, size 1–6}?, github?, github_consent?}` → `{profile, board, token?}` — with a
+  username and the box ticked, the public GitHub check runs in the background: `profile.verified` = `{login, found:
+  true, skills: {skill: {repos, last_push?}}, profile_url, checked_at}` | `{login, found: false, …}` | `{login, found:
+  null, error, …}` (GitHub could not be read). A check that finishes after the username changed is dropped; that the
+  account belongs to whoever typed it is never claimed.
+* `POST /api/hub/requests {"session_id", title, problem?, tags?, signature?, tried?, report_id?}` → `{request, board,
+  token?}` (`report_id`: the search it was posted from — that roadblock becomes "asked"; their own open request is
+  never listed as `similar` in their reports); `POST /api/hub/requests/{id}/claim {"session_id"}`;
+  `POST /api/hub/requests/{id}/release {"session_id"}` (the helper or the team that asked: open again);
+  `POST /api/hub/requests/{id}/resolve {"session_id", note?, share?, fix?, links?}` → `{board, card_id}` (`share`
+  also posts what fixed it as a card).
+* `GET /api/hub/questions?session_id=…` → `{tags, why: "the skills on your card" | "the stack of your last search" |
+  null, items: [{id, title, url, tags, asked, answers, views, score, author, license}], audit, errors, offline,
+  as_of}` — real Stack Overflow questions that are still unsolved (no accepted or upvoted answer; asked within six
+  months, open, not voted down), for at most two tags taking turns (a quiet tag gets its language's tag: [fastapi] → [python]);
+  `tags: []` when there is no card and no search yet.
+* `POST /api/hub/cards {"session_id", title, problem?, fix, tags?, links?, report_id?}` → `{card, board, token?}`
+  (`report_id`: that search's roadblock becomes "solved"); `POST /api/hub/cards/{id}/helpful {"session_id"}` — one
+  vote per identity, needs a card on the board, not on your own card.
+* `POST /api/hub/ship {"session_id", deadline?: epoch seconds | null, milestone?: key, done?: bool, roadblock?: id,
+  status?: "solved" | "asked" | "dropped"}` → `{ship, ship_state}`; `ship` = `{deadline, hours_left, elapsed,
+  milestones: [{key, title, due_at, done, done_at}], done, total, expected, pace, next, roadblocks, stuck: [{…,
+  minutes, ask_now}], quiet_hours, nudges}`.
 
 ## Utility-coordination analysis (`/api/coord/*`, docs/ANALYSIS.md)
 

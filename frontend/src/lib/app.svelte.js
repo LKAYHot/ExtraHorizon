@@ -5,6 +5,7 @@ import { isLoopbackHost } from './format.js'
 import { claimSessionId, getSessionId, readPref, writePref } from './session.js'
 import { VisionController } from './vision.svelte.js'
 import { VoiceController } from './voice.svelte.js'
+import { HubState } from './hub.svelte.js'
 
 const WINDOW_MS = 180_000
 const HEALTH_EVERY_MS = 4000
@@ -39,12 +40,14 @@ class AppState {
   vision = new VisionController(this)
   voice = new VoiceController(this)
 
-  // utility-coordination analysis (coord/): the right panel shows it instead of the camera
-  view = $state('tutor') // tutor | analysis
+  // utility-coordination analysis (coord/) or the hackathon hub (hub/): the right panel shows it instead of the camera
+  view = $state('tutor') // tutor | analysis | hub
   // spot: what she just looked up or named ({ids, label, project}) — the panel and the map follow it
   coord = $state({ state: 'idle', error: '', steps: [], selected: null, pair: null, rechecks: {}, busy: false, spot: null,
                    tab: 'findings' })
   coordReport = $state.raw(null) // the verified report (projects, findings, sources) — large, not deep-reactive
+  // hackathon hub: help from public sources, teammates and mentors, the board, the road to shipping
+  hub = new HubState(this)
 
   // remote access (e.g. the presenter's PC behind Cloudflare Tunnel): the app starts only once
   // /api/access says this browser may use it — checking | ok | needed | disabled | offline
@@ -59,6 +62,7 @@ class AppState {
   local = $derived(typeof location !== 'undefined' && isLoopbackHost(location.hostname) && this.vision.clientIsLoopback === true)
   persona = $derived(this.health?.persona ?? this.voice.info?.persona ?? 'Rika')
   coordEnabled = $derived(this.health?.coord?.enabled !== false) // EH_COORD_ENABLED (on until health says otherwise)
+  hubEnabled = $derived(this.health?.hub?.enabled !== false) // EH_HUB_ENABLED
   #coordGen = 0 // bumped by "New session" / closing: late answers of older requests are dropped
   #pendingFocus = null // a focus that arrived before its report was loaded
   /** Voice turn in flight (spoken question being answered), newest first. */
@@ -129,6 +133,7 @@ class AppState {
       this.sessionId = await claimSessionId()
       await this.#restore()
       this.#restoreAnalysis()
+      this.hub.hello()
       this.#pollHealth(true)
       this.#healthTimer = setInterval(() => this.#pollHealth(false), HEALTH_EVERY_MS)
       this.vision.start()
@@ -206,6 +211,8 @@ class AppState {
     this.coord.rechecks = {}
     this.coord.selected = null
     this.coord.spot = null
+    this.hub.reset()
+    this.hub.hello() // the board token and the ship plan are this browser's: tell the (new) server again
     this.view = 'tutor'
   }
 
@@ -288,17 +295,22 @@ class AppState {
       this.messages.push({
         id: data.assistant_message_id, key: data.assistant_message_id, role: 'assistant', text: '', status: 'streaming',
         source: 'voice', turn_no: turn, model: data.model, emotion_context: data.emotion_context, voice: data.voice,
-        analysis: data.analysis ?? null, created: Date.now(),
+        analysis: data.analysis ?? null, hub: data.hub ?? null, created: Date.now(),
       })
       return
     }
-    if (event === 'focus') return this.onFocus(data)
+    if (event === 'focus') return data?.kind === 'hub' ? this.hub.onFocus(data) : this.onFocus(data)
     if (event === 'recheck') return this.onRecheckEvent(data)
     const msg = this.#assistantOfTurn(turn)
     if (!msg) return
     if (event === 'analysis') {
       msg.analysis = { ...(msg.analysis ?? {}), live: data }
       this.onAnalysisEvent(data)
+      return
+    }
+    if (event === 'hub') {
+      msg.hub = { ...(msg.hub ?? {}), live: data }
+      this.hub.onEvent(data)
       return
     }
     if (event === 'tool') {
@@ -314,6 +326,7 @@ class AppState {
     if (event === 'done' || event === 'interrupted') {
       msg.status = 'done'
       if (data.analysis) msg.analysis = { ...(msg.analysis ?? {}), ...data.analysis }
+      if (data.hub) msg.hub = { ...(msg.hub ?? {}), ...data.hub }
       msg.model = data.model
       msg.ttft_ms = data.ttft_ms
       msg.elapsed_ms = data.elapsed_ms
@@ -357,7 +370,7 @@ class AppState {
   }
 
   // ------------------------------------------------------------------ typed chat (SSE)
-  async send(text, { analysis = false } = {}) {
+  async send(text, { analysis = false, hub = null } = {}) {
     text = (text ?? '').trim()
     if (!text || this.busy) return false
     this.voice.unlockAudio() // the click/Enter is the user gesture browsers require for audio
@@ -365,7 +378,7 @@ class AppState {
     if (this.busy) return false
     const id = tmpId('u')
     this.messages.push({ id, key: id, role: 'user', text, source: 'text', status: 'done', created: Date.now() })
-    this.#run({ message: text, subject: this.subject, ...(analysis ? { analysis: true } : {}) })
+    this.#run({ message: text, subject: this.subject, ...(analysis ? { analysis: true } : {}), ...(hub ? { hub } : {}) })
     return true
   }
 
@@ -400,6 +413,7 @@ class AppState {
   /** A turn that was running the analysis ended early (Stop, a newer question, an error, a dropped
    *  voice turn): the card and the panel must not keep spinning. */
   #analysisTurnEnded(msg) {
+    this.hub.turnEnded(msg)
     const st = msg?.analysis?.live?.state
     if (msg?.analysis?.mode === 'run' && (!st || st === 'running' || st === 'progress')) {
       msg.analysis = { ...msg.analysis, live: { state: 'cancelled' } }
@@ -512,7 +526,8 @@ class AppState {
 
   #onTool(msg, d) {
     if (!msg || !d?.name) return
-    msg.analysis = { ...(msg.analysis ?? {}), tools: [...(msg.analysis?.tools ?? []), d] }
+    const key = msg.hub ? 'hub' : 'analysis' // the look-ups of a hub answer or of an analysis answer
+    msg[key] = { ...(msg[key] ?? {}), tools: [...(msg[key]?.tools ?? []), d] }
   }
 
   /** Findings the panel does not list arrive with a focus (or on a click): the map can draw them. */
@@ -668,6 +683,7 @@ class AppState {
         onMeta: (meta) => {
           msg.id = meta.assistant_message_id
           msg.analysis = meta.analysis ?? null
+          msg.hub = meta.hub ?? null
           msg.model = meta.model
           msg.turn_no = meta.turn_no
           msg.voice = meta.voice
@@ -683,13 +699,18 @@ class AppState {
           msg.analysis = { ...(msg.analysis ?? {}), live: d }
           this.onAnalysisEvent(d)
         },
-        onFocus: (d) => this.onFocus(d),
+        onHub: (d) => {
+          msg.hub = { ...(msg.hub ?? {}), live: d }
+          this.hub.onEvent(d)
+        },
+        onFocus: (d) => (d?.kind === 'hub' ? this.hub.onFocus(d) : this.onFocus(d)),
         onTool: (d) => this.#onTool(msg, d),
         onRecheck: (d) => this.onRecheckEvent(d),
         onDone: (d) => {
           flush()
           msg.status = 'done'
           if (d.analysis) msg.analysis = { ...(msg.analysis ?? {}), ...d.analysis }
+          if (d.hub) msg.hub = { ...(msg.hub ?? {}), ...d.hub }
           msg.model = d.model
           msg.ttft_ms = d.ttft_ms
           msg.elapsed_ms = d.elapsed_ms
@@ -702,6 +723,7 @@ class AppState {
           msg.model = d.model
           msg.ttft_ms = d.ttft_ms
           if (d.analysis) msg.analysis = { ...(msg.analysis ?? {}), ...d.analysis }
+          if (d.hub) msg.hub = { ...(msg.hub ?? {}), ...d.hub }
           this.#analysisTurnEnded(msg)
         },
         onError: (err) => {

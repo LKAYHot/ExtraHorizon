@@ -1,0 +1,574 @@
+{
+ "_note": "Synthetic TEST data for the hackathon hub — invented; links point to example.org.",
+ "_as_of": "2026-09-20",
+ "questions": [
+  {
+   "_keys": [
+    "access-control-allow-origin",
+    "cors"
+   ],
+   "question_id": 900001,
+   "title": "TEST — FastAPI: No &#39;Access-Control-Allow-Origin&#39; header from the Svelte dev server",
+   "link": "https://example.org/test-fixture/so/900001",
+   "score": 41,
+   "answer_count": 3,
+   "is_answered": true,
+   "accepted_answer_id": 910001,
+   "tags": [
+    "python",
+    "fastapi",
+    "cors"
+   ],
+   "creation_date": 1677758400,
+   "owner": {
+    "display_name": "Test Answerer 9",
+    "link": "https://example.org/test-fixture/users/9",
+    "user_type": "registered",
+    "reputation": 9000
+   },
+   "body": "<p>My Svelte app on the Vite dev server calls my FastAPI backend and the browser says: blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.</p>"
+  },
+  {
+   "_keys": [
+    "access-control-allow-origin",
+    "cors"
+   ],
+   "question_id": 900002,
+   "title": "TEST — CORS policy error when the request sends credentials to a wildcard origin",
+   "link": "https://example.org/test-fixture/so/900002",
+   "score": 12,
+   "answer_count": 1,
+   "is_answered": true,
+   "accepted_answer_id": null,
+   "tags": [
+    "javascript",
+    "cors"
+   ],
+   "creation_date": 1528632000,
+   "owner": {
+    "display_name": "Test Answerer 8",
+    "link": "https://example.org/test-fixture/users/8",
+    "user_type": "registered",
+    "reputation": 8000
+   },
+   "body": "<p>Blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource, but only when I use credentials: 'include'.</p>"
+  },
+  {
+   "_keys": [
+    "access-control-allow-origin",
+    "cors"
+   ],
+   "question_id": 900003,
+   "title": "TEST — How do I center a div?",
+   "link": "https://example.org/test-fixture/so/900003",
+   "score": 3,
+   "answer_count": 2,
+   "is_answered": true,
+   "accepted_answer_id": 910003,
+   "tags": [
+    "css"
+   ],
+   "creation_date": 1577880000,
+   "owner": {
+    "display_name": "Test Answerer 7",
+    "link": "https://example.org/test-fixture/users/7",
+    "user_type": "registered",
+    "reputation": 7000
+   },
+   "body": "<p>Flexbox or grid?</p>"
+  },
+  {
+   "_keys": [
+    "access-control-allow-origin"
+   ],
+   "question_id": 900004,
+   "title": "TEST — CORS header missing on requested resource when FastAPI returns 500",
+   "link": "https://example.org/test-fixture/so/900004",
+   "score": 2,
+   "answer_count": 1,
+   "is_answered": false,
+   "accepted_answer_id": null,
+   "tags": [
+    "fastapi",
+    "cors"
+   ],
+   "creation_date": 1714910400,
+   "owner": {
+    "display_name": "Test Answerer 6",
+    "link": "https://example.org/test-fixture/users/6",
+    "user_type": "registered",
+    "reputation": 6000
+   },
+   "body": "<p>No 'Access-Control-Allow-Origin' header is present on the requested resource, only on errors. The CORS policy blocked it.</p>"
+  },
+  {
+   "_keys": [
+    "cv2",
+    "modulenotfounderror"
+   ],
+   "question_id": 900011,
+   "title": "TEST — ModuleNotFoundError: No module named &#39;cv2&#39; after pip install",
+   "link": "https://example.org/test-fixture/so/900011",
+   "score": 120,
+   "answer_count": 6,
+   "is_answered": true,
+   "accepted_answer_id": 910011,
+   "tags": [
+    "python",
+    "opencv"
+   ],
+   "creation_date": 1617278400,
+   "owner": {
+    "display_name": "Test Answerer 5",
+    "link": "https://example.org/test-fixture/users/5",
+    "user_type": "registered",
+    "reputation": 5000
+   },
+   "body": "<p>I ran pip install cv2 and import cv2 still fails: ModuleNotFoundError: No module named 'cv2'.</p>"
+  },
+  {
+   "_keys": [
+    "cv2"
+   ],
+   "question_id": 900012,
+   "title": "TEST — No module named cv2 in Jupyter, but it works in the terminal",
+   "link": "https://example.org/test-fixture/so/900012",
+   "score": 35,
+   "answer_count": 2,
+   "is_answered": true,
+   "accepted_answer_id": 910012,
+   "tags": [
+    "python",
+    "opencv",
+    "jupyter-notebook"
+   ],
+   "creation_date": 1662811200,
+   "owner": {
+    "display_name": "Test Answerer 4",
+    "link": "https://example.org/test-fixture/users/4",
+    "user_type": "registered",
+    "reputation": 4000
+   },
+   "body": "<p>ModuleNotFoundError: No module named 'cv2' only inside the notebook.</p>"
+  },
+  {
+   "_keys": [
+    "eresolve"
+   ],
+   "question_id": 900021,
+   "title": "TEST — npm ERESOLVE unable to resolve dependency tree after upgrading React",
+   "link": "https://example.org/test-fixture/so/900021",
+   "score": 88,
+   "answer_count": 4,
+   "is_answered": true,
+   "accepted_answer_id": 910021,
+   "tags": [
+    "npm",
+    "reactjs"
+   ],
+   "creation_date": 1738497600,
+   "owner": {
+    "display_name": "Test Answerer 3",
+    "link": "https://example.org/test-fixture/users/3",
+    "user_type": "registered",
+    "reputation": 3000
+   },
+   "body": "<p>npm ERR! code ERESOLVE, unable to resolve dependency tree: a package wants the old React as a peer dependency.</p>"
+  }
+ ],
+ "answers": [
+  {
+   "answer_id": 910001,
+   "question_id": 900001,
+   "score": 57,
+   "is_accepted": true,
+   "creation_date": 1677758400,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 1",
+    "link": "https://example.org/test-fixture/users/1",
+    "user_type": "registered",
+    "reputation": 1000
+   },
+   "body": "<p>Add FastAPI&#39;s CORSMiddleware and list the dev server&#39;s exact origin. A wildcard origin cannot be combined with credentials.</p><pre><code>from fastapi.middleware.cors import CORSMiddleware\n\napp.add_middleware(\n    CORSMiddleware,\n    allow_origins=[\"http://localhost:5173\"],\n    allow_methods=[\"*\"],\n    allow_headers=[\"*\"],\n)\n</code></pre>"
+  },
+  {
+   "answer_id": 910002,
+   "question_id": 900002,
+   "score": 9,
+   "is_accepted": false,
+   "creation_date": 1528718400,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 2",
+    "link": "https://example.org/test-fixture/users/2",
+    "user_type": "registered",
+    "reputation": 2000
+   },
+   "body": "<p>With credentials the server must answer with the exact origin, never *, and also send Access-Control-Allow-Credentials: true.</p>"
+  },
+  {
+   "answer_id": 910003,
+   "question_id": 900003,
+   "score": 30,
+   "is_accepted": true,
+   "creation_date": 1577966400,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 3",
+    "link": "https://example.org/test-fixture/users/3",
+    "user_type": "registered",
+    "reputation": 3000
+   },
+   "body": "<p>Use display: grid; place-items: center.</p>"
+  },
+  {
+   "answer_id": 910004,
+   "question_id": 900004,
+   "score": 1,
+   "is_accepted": false,
+   "creation_date": 1714996800,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 4",
+    "link": "https://example.org/test-fixture/users/4",
+    "user_type": "registered",
+    "reputation": 4000
+   },
+   "body": "<p>Maybe restart the server?</p>"
+  },
+  {
+   "answer_id": 910011,
+   "question_id": 900011,
+   "score": 150,
+   "is_accepted": true,
+   "creation_date": 1617364800,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 5",
+    "link": "https://example.org/test-fixture/users/5",
+    "user_type": "registered",
+    "reputation": 5000
+   },
+   "body": "<p>There is no package called cv2 — the import name cv2 comes from the opencv-python package. Install it into the interpreter you run:</p><pre><code>python -m pip install opencv-python</code></pre>"
+  },
+  {
+   "answer_id": 910012,
+   "question_id": 900012,
+   "score": 40,
+   "is_accepted": true,
+   "creation_date": 1662897600,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 6",
+    "link": "https://example.org/test-fixture/users/6",
+    "user_type": "registered",
+    "reputation": 6000
+   },
+   "body": "<p>The notebook runs another interpreter. Install it into that kernel from a cell:</p><pre><code>%pip install opencv-python</code></pre>"
+  },
+  {
+   "answer_id": 910021,
+   "question_id": 900021,
+   "score": 95,
+   "is_accepted": true,
+   "creation_date": 1738584000,
+   "content_license": "CC BY-SA 4.0",
+   "owner": {
+    "display_name": "Test Answerer 7",
+    "link": "https://example.org/test-fixture/users/7",
+    "user_type": "registered",
+    "reputation": 7000
+   },
+   "body": "<p>Upgrade the package that pins the old peer dependency; only as a last resort install with --legacy-peer-deps.</p><pre><code>npm install --legacy-peer-deps</code></pre>"
+  }
+ ],
+ "top": {
+  "fastapi": [
+   {
+    "question_id": 900101,
+    "title": "TEST — How do I use WebSockets in FastAPI?",
+    "link": "https://example.org/test-fixture/so/900101",
+    "score": 310,
+    "answer_count": 5,
+    "accepted_answer_id": 910101,
+    "tags": [
+     "fastapi",
+     "websocket"
+    ],
+    "creation_date": 1628596800
+   },
+   {
+    "question_id": 900102,
+    "title": "TEST — FastAPI vs Flask",
+    "link": "https://example.org/test-fixture/so/900102",
+    "score": 12,
+    "answer_count": 3,
+    "accepted_answer_id": null,
+    "tags": [
+     "fastapi",
+     "flask"
+    ],
+    "creation_date": 1583064000
+   }
+  ]
+ },
+ "top_answerers": {
+  "pytorch": {
+   "all_time": [
+    {
+     "user": {
+      "user_id": 7001,
+      "display_name": "TEST Expert Uma",
+      "link": "https://example.org/test-fixture/so-users/7001",
+      "user_type": "registered",
+      "reputation": 1007
+     },
+     "post_count": 120,
+     "score": 900
+    },
+    {
+     "user": {
+      "user_id": 7002,
+      "display_name": "TEST Expert Vik",
+      "link": "https://example.org/test-fixture/so-users/7002",
+      "user_type": "registered",
+      "reputation": 2007
+     },
+     "post_count": 45,
+     "score": 300
+    },
+    {
+     "user": {
+      "user_id": 7003,
+      "display_name": "TEST Newcomer",
+      "link": "https://example.org/test-fixture/so-users/7003",
+      "user_type": "registered",
+      "reputation": 3007
+     },
+     "post_count": 4,
+     "score": 20
+    },
+    {
+     "user": {
+      "user_id": 7004,
+      "display_name": "TEST Gone",
+      "link": "https://example.org/test-fixture/so-users/7004",
+      "user_type": "does_not_exist",
+      "reputation": 4007
+     },
+     "post_count": 60,
+     "score": 400
+    }
+   ],
+   "month": [
+    {
+     "user": {
+      "user_id": 7002,
+      "display_name": "TEST Expert Vik",
+      "link": "https://example.org/test-fixture/so-users/7002",
+      "user_type": "registered",
+      "reputation": 2007
+     },
+     "post_count": 2,
+     "score": 3
+    }
+   ]
+  },
+  "fastapi": {
+   "all_time": [
+    {
+     "user": {
+      "user_id": 7005,
+      "display_name": "TEST Expert Wen",
+      "link": "https://example.org/test-fixture/so-users/7005",
+      "user_type": "registered",
+      "reputation": 5007
+     },
+     "post_count": 210,
+     "score": 1500
+    },
+    {
+     "user": {
+      "user_id": 7006,
+      "display_name": "TEST Expert Xan",
+      "link": "https://example.org/test-fixture/so-users/7006",
+      "user_type": "registered",
+      "reputation": 6007
+     },
+     "post_count": 30,
+     "score": 150
+    }
+   ],
+   "month": [
+    {
+     "user": {
+      "user_id": 7006,
+      "display_name": "TEST Expert Xan",
+      "link": "https://example.org/test-fixture/so-users/7006",
+      "user_type": "registered",
+      "reputation": 6007
+     },
+     "post_count": 1,
+     "score": 1
+    }
+   ]
+  }
+ },
+ "open_questions": {
+  "fastapi": [
+   {
+    "question_id": 950001,
+    "title": "TEST — FastAPI background task never runs after the response",
+    "link": "https://example.org/test-fixture/so/950001",
+    "tags": [
+     "python",
+     "fastapi"
+    ],
+    "creation_date": 1789732800,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 31,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 3"
+    }
+   },
+   {
+    "question_id": 950002,
+    "title": "TEST — FastAPI &quot;Depends&quot; with a class and a default",
+    "link": "https://example.org/test-fixture/so/950002",
+    "tags": [
+     "fastapi"
+    ],
+    "creation_date": 1789214400,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 32,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 4"
+    }
+   },
+   {
+    "question_id": 950003,
+    "title": "TEST — an old FastAPI question",
+    "link": "https://example.org/test-fixture/so/950003",
+    "tags": [
+     "fastapi"
+    ],
+    "creation_date": 1768478400,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 33,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 5"
+    }
+   },
+   {
+    "question_id": 950006,
+    "title": "TEST — solved meanwhile (an upvoted answer)",
+    "link": "https://example.org/test-fixture/so/950006",
+    "tags": [
+     "fastapi"
+    ],
+    "creation_date": 1789387200,
+    "score": 0,
+    "answer_count": 1,
+    "view_count": 36,
+    "is_answered": true,
+    "owner": {
+     "display_name": "Test Asker 1"
+    }
+   },
+   {
+    "question_id": 950004,
+    "title": "TEST — a closed duplicate",
+    "link": "https://example.org/test-fixture/so/950004",
+    "tags": [
+     "fastapi"
+    ],
+    "creation_date": 1789473600,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 34,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 6"
+    },
+    "closed_date": 1789473600,
+    "closed_reason": "duplicate"
+   },
+   {
+    "question_id": 950005,
+    "title": "TEST — a voted-down question",
+    "link": "https://example.org/test-fixture/so/950005",
+    "tags": [
+     "fastapi"
+    ],
+    "creation_date": 1789560000,
+    "score": -2,
+    "answer_count": 0,
+    "view_count": 35,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 0"
+    }
+   }
+  ],
+  "python": [
+   {
+    "question_id": 950011,
+    "title": "TEST — Python dataclass default list shared between instances",
+    "link": "https://example.org/test-fixture/so/950011",
+    "tags": [
+     "python"
+    ],
+    "creation_date": 1789819200,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 41,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 6"
+    }
+   },
+   {
+    "question_id": 950001,
+    "title": "TEST — FastAPI background task never runs after the response",
+    "link": "https://example.org/test-fixture/so/950001",
+    "tags": [
+     "python",
+     "fastapi"
+    ],
+    "creation_date": 1789732800,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 31,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 3"
+    }
+   }
+  ],
+  "svelte": [
+   {
+    "question_id": 950021,
+    "title": "TEST — Svelte 5 $derived does not update inside an each block",
+    "link": "https://example.org/test-fixture/so/950021",
+    "tags": [
+     "svelte"
+    ],
+    "creation_date": 1789646400,
+    "score": 0,
+    "answer_count": 0,
+    "view_count": 51,
+    "is_answered": false,
+    "owner": {
+     "display_name": "Test Asker 2"
+    }
+   }
+  ]
+ }
+}

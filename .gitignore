@@ -30,6 +30,8 @@ backend/models/*.task
 backend/models/*.tflite
 backend/models/*.onnx
 backend/cache/
+# the hackathon hub's board: people's cards and help requests (personal data)
+backend/data/
 *.log
 logs/
 tmp/

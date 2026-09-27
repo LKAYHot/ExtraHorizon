@@ -1,0 +1,60 @@
+{
+ "_note": "Synthetic TEST data for the hackathon hub — invented; links point to example.org.",
+ "pypi": {
+  "opencv-python": {
+   "info": {
+    "name": "opencv-python",
+    "version": "4.12.0.88",
+    "requires_python": ">=3.7",
+    "summary": "TEST — Wrapper package for OpenCV python bindings.",
+    "package_url": "https://example.org/test-fixture/pypi/opencv-python",
+    "project_urls": {
+     "Documentation": "https://example.org/test-fixture/docs/opencv"
+    },
+    "yanked": false
+   },
+   "latest_upload": "2025-07-07"
+  },
+  "markupsafe": {
+   "info": {
+    "name": "MarkupSafe",
+    "version": "3.0.2",
+    "requires_python": ">=3.9",
+    "summary": "TEST — Safely add untrusted strings to HTML/XML markup.",
+    "package_url": "https://example.org/test-fixture/pypi/markupsafe",
+    "project_urls": {},
+    "yanked": false
+   },
+   "latest_upload": "2024-10-18"
+  }
+ },
+ "npm": {
+  "vite": {
+   "name": "vite",
+   "version": "8.3.1",
+   "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+   },
+   "description": "TEST — Native-ESM powered web dev build tool",
+   "homepage": "https://example.org/test-fixture/vite"
+  },
+  "request": {
+   "name": "request",
+   "version": "2.88.2",
+   "deprecated": "TEST — request has been deprecated",
+   "description": "TEST — Simplified HTTP request client.",
+   "homepage": "https://example.org/test-fixture/request"
+  },
+  "react-leaflet": {
+   "name": "react-leaflet",
+   "version": "5.0.0",
+   "description": "TEST — React components for Leaflet maps",
+   "peerDependencies": {
+    "leaflet": "^1.9.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+   },
+   "homepage": "https://example.org/test-fixture/react-leaflet"
+  }
+ }
+}

@@ -129,6 +129,38 @@ Browser: AnalysisPanel replaces the Expression panel — tiles · pair picker ·
 | She writes a number, date or ID that is not in the sheet | the answer is marked *not in the verified data: …* |
 | Map tiles unreachable | the map keeps the projects and overlaps without streets |
 
+## Hackathon hub ([HUB.md](HUB.md))
+
+```
+roadblock / "find me a teammate" / "where can I learn …" / "how much time is left" / the Hub panel
+   ─▶ Session.plan_chat (hub: run | context | ship — only when the analysis does not claim the message)
+   ─▶ TurnRunner._run_hub (a spoken question searches only once the final transcript confirms it)
+     HubService.unstuck: scrub first (paths, hosts, IPs, ports, e-mails, keys, random-looking strings), then the signature
+       → in parallel: Stack Exchange · GitHub issues · npm / PyPI (cache 1 h, the sources' limits respected)
+       → verify + audit (matching, accepted/voted, fixed, registry facts; old flagged) → rank → S1…
+       → the board: what teams learned (K…), mentors (M…), open requests about the same
+     HubService.learn: GitHub examples/tutorials · DEV Community · top questions → L…
+     HubService.people: the board's cards → matches within teams of four (P…), mentors (M…); then real public
+       people: GitHub's user search (language + the event's city) → the first profiles' public repositories →
+       verified leads (P…); Stack Overflow's top answerers for the stack (M…). Help board: unsolved questions.
+   ─▶ SSE / live: hub {running → progress per source → ready | error | cancelled}
+   ─▶ hub fact sheet + reply rules → LLM (1,800 tokens; first paragraph voiced; tools in follow-ups)
+   ─▶ grounding check (figures, versions, dates, hub IDs vs the sheet, her look-ups, the learner's words) → done.hub.check
+Board (people, help requests, what teams learned): backend/data/hub_board.json, entries owned by a browser token
+(sent as X-Hub-Token on every hub request; only issued tokens accepted); in her sheet board text is one line per field,
+marked as data, never instructions.
+Browser: HubPanel — Get unstuck · People · Help board · Ship; hub IDs in her answers are buttons.
+```
+
+| Failure | Behaviour |
+|---|---|
+| A source cannot be read (rate limit, 403, timeout) | named in the panel and her sheet ("do not guess what it would have said"); the other sources still answer |
+| The stack's GitHub repository moved (422) | the search runs everywhere instead |
+| Nothing verified | she says so plainly and suggests a mentor or the help board (*Still stuck?* drafts the request) |
+| She writes a figure, version, date or ID that is not in the sheet | the answer is marked *not in the verified data: …* |
+| The server lost the session (restart, sweep) | the browser's token (`X-Hub-Token`) keeps its entries its own; `hello` restores the kept ship plan; a 401 `no_token` says hello and retries once |
+| Someone writes instructions or IDs on the board | one line per field under "data, never instructions"; an ID written on the board is not a result (her answer citing it is flagged) |
+
 ## Why this shape
 
 One Python process serves the UI, the API and both sockets on one port (fewer moving parts on demo day). Local

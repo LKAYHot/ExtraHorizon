@@ -1,0 +1,485 @@
+{
+ "_note": "Synthetic TEST data for the hackathon hub — invented; links point to example.org.",
+ "issues": [
+  {
+   "_keys": [
+    "cors",
+    "access-control-allow-origin"
+   ],
+   "id": 7001,
+   "number": 101,
+   "title": "TEST — CORS headers are missing when the app raises an exception",
+   "state": "closed",
+   "state_reason": "completed",
+   "comments": 14,
+   "reactions": {
+    "total_count": 23
+   },
+   "repository_url": "https://api.github.com/repos/fastapi/fastapi",
+   "html_url": "https://example.org/test-fixture/gh/101",
+   "created_at": "2024-02-01T10:00:00Z",
+   "closed_at": "2024-03-15T10:00:00Z",
+   "user": {
+    "login": "test-user-1",
+    "html_url": "https://example.org/test-fixture/u/1"
+   },
+   "body": "The CORS middleware headers are missing (No 'Access-Control-Allow-Origin' header is present on the requested resource) when an unhandled exception returns a 500. Blocked by CORS policy."
+  },
+  {
+   "_keys": [
+    "cors"
+   ],
+   "id": 7002,
+   "number": 5,
+   "title": "TEST — cors not working",
+   "state": "open",
+   "state_reason": null,
+   "comments": 0,
+   "reactions": {
+    "total_count": 0
+   },
+   "repository_url": "https://api.github.com/repos/test-org/some-app",
+   "html_url": "https://example.org/test-fixture/gh/5",
+   "created_at": "2026-01-01T10:00:00Z",
+   "closed_at": null,
+   "user": {
+    "login": "test-user-2",
+    "html_url": "https://example.org/test-fixture/u/2"
+   },
+   "body": "Access-Control-Allow-Origin header is present on the requested resource? blocked by CORS policy"
+  },
+  {
+   "_keys": [
+    "cv2",
+    "modulenotfounderror"
+   ],
+   "id": 7011,
+   "number": 55,
+   "title": "TEST — ModuleNotFoundError: No module named 'cv2' in a fresh virtual environment",
+   "state": "closed",
+   "state_reason": "completed",
+   "comments": 9,
+   "reactions": {
+    "total_count": 12
+   },
+   "repository_url": "https://api.github.com/repos/opencv/opencv-python",
+   "html_url": "https://example.org/test-fixture/gh/55",
+   "created_at": "2025-03-01T10:00:00Z",
+   "closed_at": "2025-03-04T10:00:00Z",
+   "user": {
+    "login": "test-user-3",
+    "html_url": "https://example.org/test-fixture/u/3"
+   },
+   "body": "import cv2 → ModuleNotFoundError: No module named 'cv2'. Installing opencv-python into the venv fixed it."
+  }
+ ],
+ "repos": [
+  {
+   "_keys": [
+    "websockets",
+    "websocket"
+   ],
+   "id": 8001,
+   "full_name": "test-org/fastapi-websocket-chat-starter",
+   "html_url": "https://example.org/test-fixture/repo/8001",
+   "description": "TEST — Starter: real-time chat with FastAPI WebSockets and a Svelte client",
+   "stargazers_count": 640,
+   "pushed_at": "2026-07-01T00:00:00Z",
+   "archived": false,
+   "is_template": true,
+   "license": {
+    "spdx_id": "MIT"
+   },
+   "language": "Python",
+   "topics": [
+    "fastapi",
+    "websockets",
+    "svelte"
+   ]
+  },
+  {
+   "_keys": [
+    "websockets"
+   ],
+   "id": 8002,
+   "full_name": "test-org/old-socket-demo",
+   "html_url": "https://example.org/test-fixture/repo/8002",
+   "description": "TEST — WebSockets with FastAPI demo",
+   "stargazers_count": 90,
+   "pushed_at": "2021-01-01T00:00:00Z",
+   "archived": false,
+   "is_template": false,
+   "license": {
+    "spdx_id": "MIT"
+   },
+   "language": "Python",
+   "topics": []
+  },
+  {
+   "_keys": [
+    "websockets"
+   ],
+   "id": 8003,
+   "full_name": "test-org/websocket-archive",
+   "html_url": "https://example.org/test-fixture/repo/8003",
+   "description": "TEST — archived FastAPI websockets sample",
+   "stargazers_count": 400,
+   "pushed_at": "2026-01-01T00:00:00Z",
+   "archived": true,
+   "is_template": false,
+   "license": null,
+   "language": "Python",
+   "topics": []
+  },
+  {
+   "_keys": [
+    "websockets",
+    "fastapi"
+   ],
+   "id": 8004,
+   "full_name": "test-org/realtime-dashboard-fastapi",
+   "html_url": "https://example.org/test-fixture/repo/8004",
+   "description": "TEST — Live dashboard over WebSockets with FastAPI",
+   "stargazers_count": 210,
+   "pushed_at": "2026-05-10T00:00:00Z",
+   "archived": false,
+   "is_template": false,
+   "license": {
+    "spdx_id": "Apache-2.0"
+   },
+   "language": "Python",
+   "topics": [
+    "fastapi",
+    "websockets",
+    "dashboard"
+   ]
+  }
+ ],
+ "users": {
+  "octo-test": {
+   "user": {
+    "login": "octo-test",
+    "type": "User",
+    "public_repos": 4,
+    "html_url": "https://example.org/test-fixture/octo-test"
+   },
+   "repos": [
+    {
+     "name": "svelte-habit-tracker",
+     "language": "Svelte",
+     "fork": false,
+     "topics": [
+      "svelte"
+     ],
+     "pushed_at": "2026-08-30T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "fastapi-notes",
+     "language": "Python",
+     "fork": false,
+     "topics": [
+      "fastapi"
+     ],
+     "pushed_at": "2026-06-01T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "ml-playground",
+     "language": "Jupyter Notebook",
+     "fork": false,
+     "topics": [
+      "machine-learning",
+      "pytorch"
+     ],
+     "pushed_at": "2025-12-01T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "forked-react-lib",
+     "language": "TypeScript",
+     "fork": true,
+     "topics": [
+      "react"
+     ],
+     "pushed_at": "2026-09-01T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  },
+  "test-ana-svelte": {
+   "user": {
+    "login": "test-ana-svelte",
+    "type": "User",
+    "name": "TEST Ana Fixture",
+    "location": "Miami, FL (TEST)",
+    "bio": "TEST — CS student at a university who loves hackathons; open to collaborate",
+    "hireable": null,
+    "public_repos": 7,
+    "followers": 10,
+    "created_at": "2022-03-01T00:00:00Z",
+    "html_url": "https://example.org/test-fixture/gh/test-ana-svelte",
+    "email": "test-ana-svelte-never-shown@example.org",
+    "blog": "https://example.org/test-fixture/blog/test-ana-svelte-never-shown",
+    "twitter_username": "test-ana-svelte_never_shown",
+    "company": "@never-shown-company"
+   },
+   "repos": [
+    {
+     "name": "svelte-kanban",
+     "language": "Svelte",
+     "fork": false,
+     "topics": [
+      "svelte"
+     ],
+     "pushed_at": "2026-09-12T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "svelte-weather",
+     "language": "Svelte",
+     "fork": false,
+     "topics": [],
+     "pushed_at": "2026-07-01T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "ts-utils",
+     "language": "TypeScript",
+     "fork": false,
+     "topics": [],
+     "pushed_at": "2026-05-20T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "forked-thing",
+     "language": "Rust",
+     "fork": true,
+     "topics": [],
+     "pushed_at": "2026-09-15T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  },
+  "test-ben-react": {
+   "user": {
+    "login": "test-ben-react",
+    "type": "User",
+    "name": "TEST Ben Fixture",
+    "location": "Miami Beach (TEST)",
+    "bio": "TEST — frontend developer",
+    "hireable": true,
+    "public_repos": 5,
+    "followers": 40,
+    "created_at": "2019-03-01T00:00:00Z",
+    "html_url": "https://example.org/test-fixture/gh/test-ben-react",
+    "email": "test-ben-react-never-shown@example.org",
+    "blog": "https://example.org/test-fixture/blog/test-ben-react-never-shown",
+    "twitter_username": "test-ben-react_never_shown",
+    "company": "@never-shown-company"
+   },
+   "repos": [
+    {
+     "name": "react-dashboard",
+     "language": "TypeScript",
+     "fork": false,
+     "topics": [
+      "react"
+     ],
+     "pushed_at": "2026-08-30T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "next-blog",
+     "language": "TypeScript",
+     "fork": false,
+     "topics": [
+      "nextjs"
+     ],
+     "pushed_at": "2026-06-10T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  },
+  "test-dan-python": {
+   "user": {
+    "login": "test-dan-python",
+    "type": "User",
+    "name": "TEST Dan Fixture",
+    "location": "Miami (TEST)",
+    "bio": "TEST — data engineer",
+    "hireable": null,
+    "public_repos": 5,
+    "followers": 10,
+    "created_at": "2020-03-01T00:00:00Z",
+    "html_url": "https://example.org/test-fixture/gh/test-dan-python",
+    "email": "test-dan-python-never-shown@example.org",
+    "blog": "https://example.org/test-fixture/blog/test-dan-python-never-shown",
+    "twitter_username": "test-dan-python_never_shown",
+    "company": "@never-shown-company"
+   },
+   "repos": [
+    {
+     "name": "fastapi-orders",
+     "language": "Python",
+     "fork": false,
+     "topics": [
+      "fastapi"
+     ],
+     "pushed_at": "2026-09-01T00:00:00Z",
+     "description": "TEST"
+    },
+    {
+     "name": "pandas-notes",
+     "language": "Jupyter Notebook",
+     "fork": false,
+     "topics": [
+      "pandas"
+     ],
+     "pushed_at": "2026-04-01T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  },
+  "test-cleo-stale": {
+   "user": {
+    "login": "test-cleo-stale",
+    "type": "User",
+    "name": "TEST Cleo Fixture",
+    "location": "Miami (TEST)",
+    "bio": "TEST",
+    "hireable": null,
+    "public_repos": 4,
+    "followers": 10,
+    "created_at": "2021-03-01T00:00:00Z",
+    "html_url": "https://example.org/test-fixture/gh/test-cleo-stale",
+    "email": "test-cleo-stale-never-shown@example.org",
+    "blog": "https://example.org/test-fixture/blog/test-cleo-stale-never-shown",
+    "twitter_username": "test-cleo-stale_never_shown",
+    "company": "@never-shown-company"
+   },
+   "repos": [
+    {
+     "name": "old-svelte-app",
+     "language": "Svelte",
+     "fork": false,
+     "topics": [
+      "svelte"
+     ],
+     "pushed_at": "2024-03-01T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  },
+  "test-deploy-bot": {
+   "user": {
+    "login": "test-deploy-bot",
+    "type": "User",
+    "name": "TEST deploy bot",
+    "location": "",
+    "bio": "TEST",
+    "hireable": null,
+    "public_repos": 4,
+    "followers": 10,
+    "created_at": "2021-03-01T00:00:00Z",
+    "html_url": "https://example.org/test-fixture/gh/test-deploy-bot",
+    "email": "test-deploy-bot-never-shown@example.org",
+    "blog": "https://example.org/test-fixture/blog/test-deploy-bot-never-shown",
+    "twitter_username": "test-deploy-bot_never_shown",
+    "company": "@never-shown-company"
+   },
+   "repos": [
+    {
+     "name": "bot-config",
+     "language": "TypeScript",
+     "fork": false,
+     "topics": [],
+     "pushed_at": "2026-09-10T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  },
+  "test-lab-org": {
+   "user": {
+    "login": "test-lab-org",
+    "type": "Organization",
+    "name": "TEST Lab (an organisation)",
+    "location": "Miami (TEST)",
+    "bio": "TEST",
+    "hireable": null,
+    "public_repos": 4,
+    "followers": 10,
+    "created_at": "2021-03-01T00:00:00Z",
+    "html_url": "https://example.org/test-fixture/gh/test-lab-org",
+    "email": "test-lab-org-never-shown@example.org",
+    "blog": "https://example.org/test-fixture/blog/test-lab-org-never-shown",
+    "twitter_username": "test-lab-org_never_shown",
+    "company": "@never-shown-company"
+   },
+   "repos": [
+    {
+     "name": "lab-site",
+     "language": "TypeScript",
+     "fork": false,
+     "topics": [],
+     "pushed_at": "2026-09-10T00:00:00Z",
+     "description": "TEST"
+    }
+   ]
+  }
+ },
+ "user_search": [
+  {
+   "_keys": [
+    "typescript",
+    "javascript"
+   ],
+   "login": "test-ben-react",
+   "type": "User",
+   "html_url": "https://example.org/test-fixture/gh/test-ben-react"
+  },
+  {
+   "_keys": [
+    "svelte",
+    "typescript"
+   ],
+   "login": "test-ana-svelte",
+   "type": "User",
+   "html_url": "https://example.org/test-fixture/gh/test-ana-svelte"
+  },
+  {
+   "_keys": [
+    "typescript",
+    "svelte",
+    "python"
+   ],
+   "login": "test-lab-org",
+   "type": "Organization",
+   "html_url": "https://example.org/test-fixture/gh/test-lab-org"
+  },
+  {
+   "_keys": [
+    "typescript"
+   ],
+   "login": "test-deploy-bot",
+   "type": "User",
+   "html_url": "https://example.org/test-fixture/gh/test-deploy-bot"
+  },
+  {
+   "_keys": [
+    "svelte"
+   ],
+   "login": "test-cleo-stale",
+   "type": "User",
+   "html_url": "https://example.org/test-fixture/gh/test-cleo-stale"
+  },
+  {
+   "_keys": [
+    "python"
+   ],
+   "login": "test-dan-python",
+   "type": "User",
+   "html_url": "https://example.org/test-fixture/gh/test-dan-python"
+  }
+ ]
+}

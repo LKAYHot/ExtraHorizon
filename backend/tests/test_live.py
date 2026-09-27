@@ -136,6 +136,36 @@ def test_spoken_question_gets_filler_then_answer_voice_on_the_same_turn():
             cm.__exit__(None, None, None)
 
 
+def test_a_spoken_roadblock_runs_the_hub_search_once_and_on_the_voice_socket():
+    """Said out loud: "I'm getting a CORS error…" — the hub searches the public sources only once the final transcript
+    confirms the question (a discarded guess never searches), its events reach the browser on the live socket before
+    her answer, the prompt holds the hub's sheet (marked as spoken) and the answer is grounding-checked."""
+    llm = FakeLLM(text="[calm] Add the exact dev-server origin, S1. \n\n### Try this first\n- S1")
+    c, llm = voice_app(["I'm getting blocked by CORS policy: No 'Access-Control-Allow-Origin' header from my FastAPI "
+                        "backend when my Svelte app calls it."], llm=llm)
+    with c:
+        cm, live, _ = open_live(c)
+        try:
+            live.say(question(1.2))
+            done = live.until(lambda m: m["type"] == "turn" and m["event"] == "done", timeout=15)
+            turn = done["turn_no"]
+            events = live.turn_events(turn)
+            assert "hub" in events and events.index("hub") < events.index("delta")
+            states = [m["data"]["state"] for m in live.msgs
+                      if m.get("type") == "turn" and m["turn_no"] == turn and m["event"] == "hub"]
+            assert states[0] == "running" and states[-1] == "ready"
+            assert done["data"]["hub"]["kind"] == "unstuck" and done["data"]["hub"]["check"]["ok"] is True
+            prompt = llm.requests[-1]
+            assert any(str(m["content"]).startswith("[Verified help for the learner's roadblock") for m in prompt)
+            assert prompt[-2]["content"].startswith("[The learner said this out loud")
+            searches = [q for s, q in c.app.state.services.hub.sources.calls if s == "stackoverflow" and "answers" not in q]
+            assert len(searches) == 1  # the speculative guess did not search
+            live.until(lambda m: m["type"] == "audio_end" and m["turn_no"] == turn)
+            assert live.of("audio_begin", turn_no=turn, kind="answer")  # her spoken summary
+        finally:
+            cm.__exit__(None, None, None)
+
+
 def test_a_spoken_question_about_the_utilities_runs_the_analysis_on_the_voice_socket():
     """Asked out loud: the analysis events reach the browser on the live socket before her answer, the prompt
     holds the fact sheet (marked as spoken), the report budget applies and the answer is grounding-checked."""

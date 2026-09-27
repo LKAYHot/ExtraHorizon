@@ -594,7 +594,7 @@ class LiveConnection:
             self._plan_ids.clear()  # only a turn still in flight matters
         self._plan_ids.add(plan.request_id)
         runner = TurnRunner(self.session, plan, self.svc.llm, self.s, self.svc.tts, self,
-                            coord=getattr(self.svc, "coord", None))
+                            coord=getattr(self.svc, "coord", None), hub=getattr(self.svc, "hub", None))
         async for name, data in runner.events():
             if name == "discarded":
                 return

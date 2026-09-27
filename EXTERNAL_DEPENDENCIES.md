@@ -15,11 +15,15 @@ Node.js 24.19.0). Direct dependencies are pinned by `backend/uv.lock` and
 
 | What | Kind | Runs where | Sees what data |
 |---|---|---|---|
-| **OpenAI Chat Completions** — `gpt-6-luna` (fallback `gpt-5.5`) | LLM service | OpenAI cloud | chat text (typed or transcribed), earlier answers of the session, a words-only note about the learner's apparent facial expression and visible facial actions; in analysis turns the fact sheet of the utility-coordination analysis (public county records, no contact data) |
+| **OpenAI Chat Completions** — `gpt-6-luna` (fallback `gpt-5.5`) | LLM service | OpenAI cloud | chat text (typed or transcribed), earlier answers of the session, a words-only note about the learner's apparent facial expression and visible facial actions; in analysis turns the fact sheet of the utility-coordination analysis (public county records, no contact data); in hub turns the hub's fact sheet — public Q&A excerpts with their authors' display names, package facts, the board's matching entries (names, skills, interests, ideas, availability, team size as their owners wrote them — never the contact line) and, for teammates and mentors, the public people found: a GitHub profile's login, public name, city, what its public repositories use, last push, "available for hire" and a few words from the bio ("student", "hackathons" — never the bio, e-mail, links or company); a Stack Overflow top answerer's display name, tag, answer count, score and reputation |
 | **OpenAI Realtime transcription** — `gpt-live-transcribe` | speech-to-text service | OpenAI cloud | only the **speech segments** of the microphone audio (detected locally), PCM 24 kHz |
 | **Fish Audio live TTS** — model `drama-3-preview`, voice `c5d8a284092847df9e3c7308aeedc5f2` | text-to-speech service | Fish Audio cloud | the text of the tutor's answers (with voice cues) and the short filler phrases |
 | **Miami-Dade County open data** (Utility Coordination layers + the county's conflict list) served by **Esri ArcGIS Online** (`services.arcgis.com/8Pc9XBTAsYuxx9Ny`, item metadata from `www.arcgis.com`) | public data service | the backend reads it (only when the analysis is used) | the queries only (layer, fields, object IDs) and the server's IP address — nothing about the learner (see §3b) |
 | **OpenStreetMap tile servers** (`tile.openstreetmap.org`, OpenStreetMap Foundation) | map tiles | the viewer's browser (only when the analysis map is shown) | the visible map area, the viewer's IP address, browser and the page address (Referer) (see §3b) |
+| **Stack Exchange API 2.3** (Stack Overflow questions and answers; a tag's top answerers; still unsolved questions) | public Q&A service | the backend reads it (only when the hackathon hub searches, finds mentors or fills the help board) | the search words — a signature of the error with the learner's paths, hosts, ports, e-mails and key-like strings removed —, tags of the stack, and the server's IP address (see §3c) |
+| **GitHub REST API** (`api.github.com`: issue, repository and user search; public profiles and repositories) | public code-hosting API | the backend (hub searches; teammate searches; a card's GitHub check) | search words; for teammates a GitHub language and the event's city (`language:"Svelte" location:"Miami"`) and the logins of the profiles found; the GitHub username of a person who typed it on their card and ticked the box; the server's IP address; an optional `GITHUB_TOKEN` (see §3c) |
+| **npm registry** (`registry.npmjs.org`) and **PyPI JSON API** (`pypi.org/pypi`) | package metadata | the backend (hub searches) | the package names an error names or the learner mentions (see §3c) |
+| **DEV Community (Forem) API** (`dev.to/api/articles`) | public articles | the backend (hub learning searches) | a topic tag (see §3c) |
 | **Google MediaPipe Face Landmarker** (`face_landmarker.task`, float16 v1) | ML model | locally, CPU | camera frames (in memory only) |
 | **EmotiEffLib `enet_b0_8_va_mtl`** (ONNX) | ML model (facial expression) | locally, CPU | a face crop of the camera frame (in memory only) |
 | **Silero VAD v5** (ONNX) | ML model (voice activity) | locally, CPU | microphone audio (in memory only) |
@@ -108,6 +112,51 @@ utility-coordination analysis is used (§3b); a local run without them touches n
   basemap was used during development until it started requiring an API key; it is no longer used.)
 * **Test fixtures:** `backend/tests/fixtures/coord/` is synthetic TEST data invented for this project
   (`make_coord_fixtures.py`), labelled as such everywhere; not county data.
+
+## 3c. Hackathon hub: Stack Exchange (Stack Overflow), GitHub, npm, PyPI, DEV Community
+
+Only when the hub searches (a roadblock, a learning topic, teammates, mentors), fills the help board's open questions,
+or checks a card's GitHub account. All read-only, over
+HTTPS, by `backend/extrahorizon/hub/sources.py` with the User-Agent `ExtraHorizon-hackathon-hub/1.0 (student project;
++https://github.com)`; responses are cached in memory for an hour (`EH_HUB_CACHE_TTL_S`). Details: docs/HUB.md.
+
+* **Stack Exchange API 2.3** — `GET /search/advanced` (questions with answers for the error's signature, one tag),
+  `GET /answers/{ids}` (their accepted answers, with bodies) and `GET /questions/{ids}/answers` (their other answers),
+  `GET /questions?tagged=…&sort=votes` (learning), `GET /tags/{tag}/top-answerers/{all_time|month}` (mentors: public
+  experts for the stack — display name, reputation, answers and score on the tag), `GET /questions/unanswered?tagged=…`
+  (the help board: still unsolved questions — title, tags, date, views, the asker's display name). No key:
+  300 requests per day per IP; the API's `backoff` is respected. Stack Overflow content is licensed **CC BY-SA 4.0**:
+  the hub shows short excerpts with the author's display name, a link to the author, the licence and a link to the
+  answer. What is sent: the signature (e.g. `ModuleNotFoundError No module named 'cv2'`) and a tag — the text is
+  scrubbed before the signature is taken from it, so never the learner's paths, URLs, hosts, IP addresses, ports,
+  `host=` / `password=` values, e-mails, key-like strings (API keys, JWTs, cloud keys), UUIDs, long hex or
+  random-looking strings, long numbers or their own file names (tests check it).
+* **GitHub REST API** — `GET /search/issues` (the stack's own tracker first, then everywhere), `GET
+  /search/repositories` (`<topic> example`, `<topic> tutorial`), `GET /search/users` (teammates: `type:user
+  language:"<Lang>" repos:>=3 location:"<city>"` — the event's city, `EH_HUB_EVENT_LOCATION`, or the place the
+  question names) and `GET /users/<name>` + `GET /users/<name>/repos` — for the first few profiles such a search
+  finds, and for a board card whose author typed a username and ticked the box (public, non-fork repositories:
+  language, topics, name, last push; from the profile: login, public name, city, "available for hire", followers,
+  since when, and a few words the bio uses — **never the e-mail, blog, company, social accounts or the bio text**;
+  nothing is combined with other sources). The hub cannot check that a card's account belongs to whoever typed it and
+  never claims so; people found by search are labelled as public leads, not participants. Without a token: 10
+  searches per minute and 60 other requests per hour per IP (a teammate search reads at most five profiles).
+  An optional `GITHUB_TOKEN` in `.env` (a token with no scopes is enough) raises the limits; it is sent only to
+  `api.github.com`, never logged, never shown in the UI (health says only whether one is set).
+* **npm registry** — `GET https://registry.npmjs.org/<name>/latest` (version, `engines.node`, `peerDependencies`,
+  `deprecated`); **PyPI** — `GET https://pypi.org/pypi/<name>/json` (version, `requires_python`, `yanked`, project
+  URLs, the latest upload date). Package names only.
+* **DEV Community (Forem) API** — `GET https://dev.to/api/articles?tag=<tag>&top=365` (title, description,
+  reactions, reading time, date, author name).
+* **The board** is local: `backend/data/hub_board.json` (git-ignored), written by the server; people's cards, help
+  requests and shared fixes as their owners wrote them, visible to everyone using this app, until deleted. The
+  browser keeps its board token and a copy of the ship plan in localStorage and sends the token with every hub
+  request to this server (the `X-Hub-Token` header — in the remote demo through Cloudflare, like everything else);
+  the server keeps only its SHA-256.
+* **No samples; fixtures only in tests**: the board holds only what real people using the app wrote. The TEST
+  fixtures in `backend/tests/fixtures/hub/` (`make_hub_fixtures.py`) are invented, labelled "TEST" (questions, people,
+  experts) and link to example.org — not real Stack Overflow, GitHub, npm, PyPI or DEV content. Tests and the offline
+  e2e never contact these services (`EH_HUB_OFFLINE_DIR`).
 
 ## 4. Local ML models
 

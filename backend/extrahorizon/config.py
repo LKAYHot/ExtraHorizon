@@ -115,6 +115,25 @@ class Settings(BaseSettings):
     coord_max_output_tokens: int = 3000  # the written report (~12 findings + sources) is far longer than a spoken answer
     coord_llm_total_timeout_s: float = 150.0  # …so it gets more time than a spoken answer (EH_LLM_TOTAL_TIMEOUT_S)
 
+    # ------------------------------------------------------------------ hackathon hub
+    # help from public sources, teammates and mentors, shared knowledge, the road to shipping — docs/HUB.md
+    hub_enabled: bool = True
+    hub_offline_dir: Path | None = None  # labelled synthetic TEST fixtures instead of the public sources (tests)
+    hub_board_path: Path | None = BACKEND_DIR / "data" / "hub_board.json"  # people, requests, cards (git-ignored; None = memory)
+    # teammates and mentors from public sources too: GitHub profiles in the event's city whose public repositories
+    # use what is asked for, and Stack Overflow's top answerers for the stack (real people — leads, not participants)
+    hub_public_people: bool = True
+    hub_event_location: str = "Miami"  # where the event is (ShellHacks: FIU, Miami); "" = any location
+    # new board identities per client address an hour (a venue's Wi-Fi puts everyone behind one address — raise it there)
+    hub_new_ids_per_hour: int = Field(default=30, ge=1, le=10_000)
+    hub_cache_ttl_s: float = 3600.0  # the same search within an hour costs no quota
+    hub_http_timeout_s: float = 12.0
+    hub_max_output_tokens: int = 1800  # a spoken summary + written steps with code
+    hub_llm_total_timeout_s: float = 90.0
+    github_token: SecretStr | None = Field(  # optional: raises GitHub's limits (never logged or sent to the browser)
+        default=None, validation_alias=AliasChoices("GITHUB_TOKEN", "EH_GITHUB_TOKEN")
+    )
+
     # ------------------------------------------------------------------ vision (face + emotions)
     vision_enabled: bool = True
     vision_model_path: Path = MODELS_DIR / FACE_LANDMARKER.filename
@@ -231,6 +250,18 @@ class Settings(BaseSettings):
         if self.stt_provider == "off":
             return False
         return self.stt_provider == "mock" or self.llm_configured_openai
+
+    @field_validator("hub_board_path", "hub_offline_dir", "coord_offline_dir", mode="before")
+    @classmethod
+    def _empty_path(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v  # EH_HUB_BOARD_PATH= → a board in memory
+
+    @field_validator("hub_board_path", "hub_offline_dir", "coord_offline_dir")
+    @classmethod
+    def _from_repo_root(cls, v: Path | None) -> Path | None:
+        # a relative path in .env means the repository's (the server starts in backend/: "backend/data/…" must not
+        # become backend/backend/data/…, which nothing git-ignores)
+        return v if v is None or v.is_absolute() else (REPO_ROOT / v).resolve()
 
     @field_validator("public_url")
     @classmethod

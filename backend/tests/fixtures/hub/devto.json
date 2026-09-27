@@ -1,0 +1,50 @@
+{
+ "_note": "Synthetic TEST data for the hackathon hub — invented; links point to example.org.",
+ "fastapi": [
+  {
+   "title": "TEST — WebSockets in FastAPI, step by step",
+   "url": "https://example.org/test-fixture/devto/1",
+   "description": "TEST — A chat room in 40 lines.",
+   "public_reactions_count": 57,
+   "reading_time_minutes": 6,
+   "published_at": "2026-04-22T00:00:00Z",
+   "tag_list": [
+    "fastapi",
+    "websockets",
+    "python"
+   ],
+   "user": {
+    "name": "Test Writer"
+   }
+  },
+  {
+   "title": "TEST — FastAPI websockets in 2019",
+   "url": "https://example.org/test-fixture/devto/2",
+   "description": "TEST",
+   "public_reactions_count": 80,
+   "reading_time_minutes": 4,
+   "published_at": "2019-01-01T00:00:00Z",
+   "tag_list": [
+    "fastapi",
+    "websockets"
+   ],
+   "user": {
+    "name": "Test Writer"
+   }
+  },
+  {
+   "title": "TEST — Hello FastAPI websockets",
+   "url": "https://example.org/test-fixture/devto/3",
+   "description": "TEST",
+   "public_reactions_count": 1,
+   "reading_time_minutes": 2,
+   "published_at": "2026-05-01T00:00:00Z",
+   "tag_list": [
+    "fastapi"
+   ],
+   "user": {
+    "name": "Test Writer"
+   }
+  }
+ ]
+}

@@ -41,6 +41,8 @@ export default defineConfig({
     { name: 'no-face', testMatch: /no-face\.spec\.js/, use: { launchOptions: { args: fakeCam(null) } } },
     // the utility-coordination analysis on the synthetic TEST fixtures (no camera, no network)
     { name: 'analysis', testMatch: /analysis\.spec\.js/ },
+    // the hackathon hub on its synthetic TEST fixtures (no network; a board in memory)
+    { name: 'hub', testMatch: /hub\.spec\.js/ },
     // no fake-ui flag → the permission prompt is refused → "permission denied" path
     { name: 'denied', testMatch: /denied\.spec\.js/, use: { launchOptions: { args: ['--use-fake-device-for-media-stream', '--deny-permission-prompts'] } } },
     // a browser reaching the presenter's PC through Cloudflare Tunnel: the headers Cloudflare adds
@@ -63,6 +65,8 @@ export default defineConfig({
     env: {
       EH_MOCK_LLM_DELAY_S: '0.01', EH_LOG_LEVEL: 'warning', EH_ACCESS_KEY: 'e2e-access-key-not-a-secret',
       EH_COORD_OFFLINE_DIR: path.join(here, '..', 'backend', 'tests', 'fixtures', 'coord'),
+      EH_HUB_OFFLINE_DIR: path.join(here, '..', 'backend', 'tests', 'fixtures', 'hub'),
+      EH_HUB_BOARD_PATH: '',
     },
   },
 })

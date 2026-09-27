@@ -30,6 +30,21 @@ conversation** (a finding ID in her answer is a button too). The analysis is **b
 layers arrive step by step, the map draws the projects and lights up the overlaps. Method, sources and
 limitations: [docs/ANALYSIS.md](docs/ANALYSIS.md).
 
+**Hackathon hub.** Stuck? Paste the error or just say it (*"I'm getting a CORS error from FastAPI"*): she searches
+**Stack Overflow, GitHub issues and the npm / PyPI registries** — only a signature of the error leaves the computer,
+your paths, hosts, ports and keys removed — **keeps only verified answers** (matching the error, accepted or voted,
+closed as fixed, the registries' own data; old ones flagged; every excerpt with its author and licence) and explains
+the fix with the exact command, citing **S1, S2 …** (buttons that show the result). The **Hub** panel also has
+**People** (put your card on the event's board; teammates who cover the roles you need — on the board first, then
+**real public GitHub profiles in the event's city** whose repositories use that stack, labelled as leads, not
+participants; teams within four; skills *seen in public GitHub repos* on a card only if you tick the box; mentors on
+the board, then **Stack Overflow's top answerers** for your stack), a **Help board** (*Still stuck?* posts a
+well-formed request; *This fixed it* shares the fix — the next team stuck on it sees it in her answer; **real, still
+unsolved Stack Overflow questions** in your stack to learn by helping — no sample entries anywhere) and **Ship**
+(deadline — presets or the app's own date-and-time picker —, the seven milestones, how long each roadblock has blocked
+you, the 30-minute rule, *cut scope*, *record the video now*). Ask *"Where can I learn WebSockets with FastAPI?"* for current tutorials and
+examples, or *"How are we doing with the deadline?"*. Design, sources and honest claims: [docs/HUB.md](docs/HUB.md).
+
 ---
 
 ## Quick start (Windows, 3 commands)
@@ -88,7 +103,12 @@ differences (Cloudflare relays the camera and microphone traffic) and troublesho
    second plan; white = the overlap),
    opened on the strongest finding; she summarises it aloud and writes the report with finding IDs; **Re-check live**
    reads a finding's two records from the county again; **Sources & checks** shows every layer's verification.
-7. **New session** clears chat, emotion history, timeline and the analysis.
+7. **Hub** (or say *"I'm stuck: my Svelte app gets a CORS error from FastAPI"*) → Stack Overflow, GitHub and the
+   registries are searched on screen; she explains the verified fix (S1 …) — *This fixed it* shares it, *Still
+   stuck?* asks a person; **People** → *Find teammates* or a role chip (the board, then real GitHub profiles in
+   Miami), *Find a mentor* (Stack Overflow's top answerers); **Help board** → real unsolved questions in your stack;
+   **Ship** → pick the deadline in the calendar, tick milestones, ask her how you are doing.
+8. **New session** clears chat, emotion history, timeline, the analysis and the hub results (the board stays).
 
 No camera? Everything still works; the **Demo simulation mode** card drives the same emotion engine with a
 chosen expression — labelled **SIMULATED** everywhere. Full script, fallbacks and honest claims:
@@ -112,6 +132,7 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
 * Voice pipeline and measured latencies: [docs/VOICE.md](docs/VOICE.md)
 * Emotion method, prompt note, **limitations**: [docs/EMOTIONS.md](docs/EMOTIONS.md)
 * Utility-coordination analysis — sources, verification, method, grounding, **limitations**: [docs/ANALYSIS.md](docs/ANALYSIS.md)
+* Hackathon hub — pain points, public sources, verification, the board, matching, shipping, **honest claims**: [docs/HUB.md](docs/HUB.md)
 * What was tested and how: [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md)
 * Everything external (services, models, libraries, assets, AI assistance): [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md)
 
@@ -123,6 +144,8 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
 | `backend/extrahorizon/context.py` | what the LLM receives: the Rika persona, voice-cue rules, the expression note |
 | `backend/extrahorizon/coord/` | the utility-coordination analysis: sources, ArcGIS client, verification, overlaps, county cross-check, fact sheet + grounding check |
 | `frontend/src/lib/components/AnalysisPanel.svelte` · `Coord*.svelte` | the analysis panel: map (Leaflet), findings, schedules, sources & checks |
+| `backend/extrahorizon/hub/` | the hackathon hub: error signature + scrubbing, public sources (Stack Exchange, GitHub, npm, PyPI, DEV), verification, board, matching, ship plan, fact sheet |
+| `frontend/src/lib/hub.svelte.js` · `components/Hub*.svelte` | the hub panel: get unstuck, people, help board, ship |
 | `backend/extrahorizon/sessions.py` · `app.py` · `vision_ws.py` | sessions/turns/reset · HTTP/SSE/routes · camera socket |
 | `frontend/src/lib/` | app store, voice controller + audio (mic worklet with device choice, player), camera controller, components |
 | `backend/scripts/` | `demo_check.py` (live chain against the running app), `vision_probe.py` (webcam check), `make_fake_camera.py` / `make_fake_mic.py` (test clips) |
@@ -147,8 +170,19 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
   from Esri ArcGIS Online (only the queries — nothing about you); **OpenAI** gets the verified public facts about the
   projects (names, IDs, agencies, statuses, dates, distances, counts — never the contact e-mails or phone numbers in
   the records); your **browser** loads the map tiles from **OpenStreetMap's** tile servers, which see your IP address.
-* **Stored:** nothing. Sessions live in memory; *New session* or stopping the backend deletes them. The county's
-  public data is kept in memory for 6 h and its last good copy in `backend/cache/coord/` (git-ignored).
+* **Hackathon hub** (only when used): for a roadblock the server sends a **signature of the error** (your paths,
+  hosts, ports, e-mails, key-like strings and file names removed) to **Stack Overflow** (Stack Exchange API),
+  **GitHub**, the **npm registry** and **PyPI**; learning searches send the topic words to GitHub, **DEV Community**
+  and Stack Overflow; teammate searches send a GitHub language and the event's city to **GitHub** (and read the
+  first few public profiles found — never anyone's e-mail, links or bio text), mentor searches and the help board send
+  the stack's tags to **Stack Overflow**; **OpenAI** gets the verified results (with answer authors' display names),
+  those public profiles, and, when someone asks for teammates, the matching board cards (never the contact line). Your
+  GitHub username goes to GitHub only if you tick the box (the hub cannot check that an account is yours, and never
+  claims it).
+* **Stored:** sessions live in memory; *New session* or stopping the backend deletes them. The county's public data
+  is kept in memory for 6 h and its last good copy in `backend/cache/coord/` (git-ignored). **The hackathon board**
+  (cards, help requests, shared fixes) is kept in `backend/data/hub_board.json` (git-ignored), visible to everyone
+  using the app, until its owner deletes it.
 * The API keys live only in the git-ignored `.env`, read by the backend; never sent to the browser or logged.
 * **Remote demo (Cloudflare Tunnel):** camera frames and microphone audio travel from the laptop over HTTPS to
   **Cloudflare**, which decrypts and re-encrypts them into the tunnel to the presenter's PC — analysed there in
