@@ -46,3 +46,4 @@ Thumbs.db
 # test fixtures downloaded at test time
 backend/tests/.cache/
 frontend/e2e/.cache/
+/docs
