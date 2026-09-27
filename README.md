@@ -5,49 +5,16 @@
 # ExtraHorizon — Rika, an emotion-aware voice tutor you can actually talk to
 
 ExtraHorizon is an AI tutor you **talk to** — hands-free, like a call. **Rika** (a tsundere
-anime girl with an expert's rigour) answers **out loud** in an expressive Fish Audio voice,
-fills the thinking gap with a natural "Hmm…", stops the moment you talk over her, and lets you
-pause mid-sentence without cutting you off. A **local** camera pipeline first learns **your** relaxed
-face (a 2.5 s calibration), then estimates your **facial expression** relative to it (8 emotions +
-valence/arousal), visualises it live, and gives her a short, words-only
-description — her "eyes" on the call — so she adapts her tone and pacing like a person would.
+anime girl with an expert's rigour) answers **out loud** in an expressive Fish Audio voice.
 
-> Key chain: **mic → local voice detection → live transcript → LLM (+ expression note) → voice cues → Fish voice → you**,
-> and **camera → on-device face + expression models → per-person calibration → emotion engine → prompt note**.
-> Expressions are estimates of how a face *looks* — not a reading of anyone's feelings.
-
-Built for ShellHacks. Stack: **SvelteKit (Svelte 5) → Python FastAPI → OpenAI (chat + realtime
-transcription) + Fish Audio (drama-3-preview)**, with **MediaPipe**, **EmotiEffLib** and **Silero
+Built for ShellHacks. Stack: **SvelteKit (Svelte 5), Python FastAPI, OpenAI (chat + realtime
+transcription), Fish Audio (drama-3-preview)**, with **MediaPipe**, **EmotiEffLib** and **Silero
 VAD** running on the local CPU.
 
 **Utility-coordination analysis.** Ask her *"Where do the utilities' construction plans overlap?"* (or press
-**Coordination**): ExtraHorizon reads **Miami-Dade County's public Utility Coordination data** live — water, sewer,
-reclaimed water, stormwater, roadway and paving plans of WASD, DTPW and FDOT — **verifies every record** (IDs, dates,
-status, footprint, inside the county; everything excluded is counted by reason), flags where **two utilities'
-future projects are physically close or scheduled around the same time** (so they can share crews, equipment and
-one excavation), **cross-checks** the result against the county's own conflict list, and shows it on a **map**, a
-**findings list** with live re-checks, a **schedule chart** and a **sources & checks** table. Rika explains it out
-loud and in a detailed written report; every number, date and finding ID she writes is checked against the verified
-data. Ask her about **any** finding — by number (also spoken: "F сто сорок шесть"), street, project or plan: she
-looks it up across all findings, re-checks it live at the county on request, and **the map follows the
-conversation** (a finding ID in her answer is a button too). The analysis is **built on screen**: the county's
-layers arrive step by step, the map draws the projects and lights up the overlaps. Method, sources and
-limitations: [docs/ANALYSIS.md](docs/ANALYSIS.md).
+**Coordination**): ExtraHorizon reads **Miami-Dade County's public Utility Coordination data** for information.
 
-**Hackathon hub.** Stuck? Paste the error or just say it (*"I'm getting a CORS error from FastAPI"*): she searches
-**Stack Overflow, GitHub issues and the npm / PyPI registries** — only a signature of the error leaves the computer,
-your paths, hosts, ports and keys removed — **keeps only verified answers** (matching the error, accepted or voted,
-closed as fixed, the registries' own data; old ones flagged; every excerpt with its author and licence) and explains
-the fix with the exact command, citing **S1, S2 …** (buttons that show the result). The **Hub** panel also has
-**People** (put your card on the event's board; teammates who cover the roles you need — on the board first, then
-**real public GitHub profiles in the event's city** whose repositories use that stack, labelled as leads, not
-participants; teams within four; skills *seen in public GitHub repos* on a card only if you tick the box; mentors on
-the board, then **Stack Overflow's top answerers** for your stack), a **Help board** (*Still stuck?* posts a
-well-formed request; *This fixed it* shares the fix — the next team stuck on it sees it in her answer; **real, still
-unsolved Stack Overflow questions** in your stack to learn by helping — no sample entries anywhere) and **Ship**
-(deadline — presets or the app's own date-and-time picker —, the seven milestones, how long each roadblock has blocked
-you, the 30-minute rule, *cut scope*, *record the video now*). Ask *"Where can I learn WebSockets with FastAPI?"* for current tutorials and
-examples, or *"How are we doing with the deadline?"*. Design, sources and honest claims: [docs/HUB.md](docs/HUB.md).
+**Hackathon hub.** Stuck? Paste the error or just say it (*"I'm getting a CORS error from FastAPI"*).
 
 ---
 
@@ -85,29 +52,6 @@ The tunnel's public hostname must point to `http://127.0.0.1:8080`. Setup, secur
 differences (Cloudflare relays the camera and microphone traffic) and troubleshooting:
 [docs/REMOTE_DEMO.md](docs/REMOTE_DEMO.md).
 
-
-## Architecture
-
-```
-Browser (SvelteKit SPA)                       Python process, same machine (FastAPI)                   Cloud
-camera → 480px JPEG ─WS /api/vision─▶ MediaPipe face → quality gates → EmotiEffLib (ONNX, upright square crop + mirror)
-                  ◀── tick / emotion_note ──  → calibration (baseline · facial actions · pose) → engine ─┐
-mic → AudioWorklet PCM16 24 kHz ─WS /api/live─▶ Silero VAD → speech only ──────────────────────────┼─▶ OpenAI gpt-live-transcribe
-                  ◀── vad / stt / heard ────   turn logic: filler · speculation · barge-in ·     │
-                  ◀── turn meta/delta/done ─   "wait, stop" · continued sentences · echo guard     │
-                  ◀── PCM voice (turn-tagged)  context (persona + expression note + rules) ───────┼─▶ OpenAI gpt-6-luna (stream)
-typed chat ─POST /api/chat (SSE)──────────▶   splitter → voice cues kept, code/maths removed ─────┴─▶ Fish Audio drama-3-preview
-```
-
-* Contract (every message and field): [docs/CONTRACT.md](docs/CONTRACT.md)
-* Components, turn-taking, failure handling: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-* Voice pipeline and measured latencies: [docs/VOICE.md](docs/VOICE.md)
-* Emotion method, prompt note, **limitations**: [docs/EMOTIONS.md](docs/EMOTIONS.md)
-* Utility-coordination analysis — sources, verification, method, grounding, **limitations**: [docs/ANALYSIS.md](docs/ANALYSIS.md)
-* Hackathon hub — pain points, public sources, verification, the board, matching, shipping, **honest claims**: [docs/HUB.md](docs/HUB.md)
-* What was tested and how: [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md)
-* Everything external (services, models, libraries, assets, AI assistance): [EXTERNAL_DEPENDENCIES.md](EXTERNAL_DEPENDENCIES.md)
-
 | Path | What |
 |---|---|
 | `backend/extrahorizon/live_ws.py` · `turns.py` | the voice conversation (turn-taking) · one tutor turn (LLM → splitter → voice) |
@@ -124,53 +68,6 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
 | `docs/brand/` · `frontend/static/` · `components/Logo.svelte` | the logo: the original file (with its Content Credentials) · the mark, the favicon tile and the PNG icons derived from it · the in-app icon |
 | `.claude/skills/` | Claude Code skills for running, testing, rehearsing, tuning and the architecture contract |
 
-## Privacy — what goes where (the same text is in the app)
-
-* **Camera frames** are downsized in the browser and sent over a **localhost** WebSocket to the ExtraHorizon
-  Python process on the same computer, analysed in memory (MediaPipe + the on-device expression model) and
-  discarded — never written to disk, never sent to any cloud service.
-* **Microphone audio** goes to the same local process, where Silero VAD detects speech; **only the parts where
-  you speak** (+0.4 s before) are sent to **OpenAI** for transcription. Nothing is recorded.
-* **OpenAI (chat)** receives your messages (typed or transcribed), her earlier answers in this session and — only
-  when one face is clearly in view and calibrated — a short words-only description of your apparent expression and
-  visible facial actions (e.g. "frowning"). No images, no numbers.
-* **Fish Audio** receives the text of her answers (and nine filler phrases once) to speak them.
-* **Google (MediaPipe library):** the official MediaPipe wheels send **usage metrics** (e.g. frame counts,
-  latency, OS/Python version) to Google while a camera session runs — per
-  [Google's notice](https://developers.google.com/edge/mediapipe/solutions/tasks#mediapipe_tasks_privacy_notice)
-  never images or video. The camera starts only after an explicit click on a card that says so.
-* **Utility-coordination analysis** (only when used): the server reads Miami-Dade County's **public** open data
-  from Esri ArcGIS Online (only the queries — nothing about you); **OpenAI** gets the verified public facts about the
-  projects (names, IDs, agencies, statuses, dates, distances, counts — never the contact e-mails or phone numbers in
-  the records); your **browser** loads the map tiles from **OpenStreetMap's** tile servers, which see your IP address.
-* **Hackathon hub** (only when used): for a roadblock the server sends a **signature of the error** (your paths,
-  hosts, ports, e-mails, key-like strings and file names removed) to **Stack Overflow** (Stack Exchange API),
-  **GitHub**, the **npm registry** and **PyPI**; learning searches send the topic words to GitHub, **DEV Community**
-  and Stack Overflow; teammate searches send a GitHub language and the event's city to **GitHub** (and read the
-  first few public profiles found — never anyone's e-mail, links or bio text), mentor searches and the help board send
-  the stack's tags to **Stack Overflow**; **OpenAI** gets the verified results (with answer authors' display names),
-  those public profiles, and, when someone asks for teammates, the matching board cards (never the contact line). Your
-  GitHub username goes to GitHub only if you tick the box (the hub cannot check that an account is yours, and never
-  claims it).
-* **Stored:** sessions live in memory; *New session* or stopping the backend deletes them. The county's public data
-  is kept in memory for 6 h and its last good copy in `backend/cache/coord/` (git-ignored). **The hackathon board**
-  (cards, help requests, shared fixes) is kept in `backend/data/hub_board.json` (git-ignored), visible to everyone
-  using the app, until its owner deletes it.
-* The API keys live only in the git-ignored `.env`, read by the backend; never sent to the browser or logged.
-* **Remote demo (Cloudflare Tunnel):** camera frames and microphone audio travel from the laptop over HTTPS to
-  **Cloudflare**, which decrypts and re-encrypts them into the tunnel to the presenter's PC — analysed there in
-  memory as above; the app then shows this wording instead of "stays on this computer", and asks for an access key.
-
-## Tests
-
-```powershell
-.\scripts\test.ps1 -E2E      # pytest + vitest + svelte-check + build + Playwright (virtual camera AND virtual microphone)
-cd backend; uv run python scripts/demo_check.py --runs 3 --speech ..\frontend\e2e\.cache\question.wav   # live, real providers
-cd backend; uv run python scripts/demo_check.py --base https://demo.example.com --access-key-env           # … through the tunnel
-```
-
-Results and the manual matrix (pass / fail / not tested): [docs/TEST_MATRIX.md](docs/TEST_MATRIX.md).
-
 ## Configuration
 
 Every threshold and timing is an environment variable (`EH_*`) with defaults in
@@ -179,25 +76,6 @@ Every threshold and timing is an environment variable (`EH_*`) with defaults in
 `EH_VOICE_MERGE_WINDOW_S`, `EH_EMOTION_SENSITIVITY` / `EH_EMOTION_CALIBRATION_S` / other `EH_EMOTION_*`, `EH_FISH_*`,
 for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`, and for the analysis `EH_COORD_DISTANCE_M`,
 `EH_COORD_WINDOW_DAYS`, `EH_COORD_AREA_M` (also adjustable in the panel), `EH_COORD_CACHE_TTL_S`.
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| "OPENAI_API_KEY is not set" / no voice (`FISH_API_KEY missing`) | put the keys in `.env` (repo root) and restart |
-| She interrupts herself / stops when she hears her own voice | use headphones or lower the speaker volume; raise `EH_BARGE_IN_THRESHOLD` / `EH_BARGE_IN_MIN_MS` |
-| She answers before you finished | raise `EH_VAD_END_SILENCE_MS` (e.g. 700); pauses up to `EH_VOICE_MERGE_WINDOW_S` are already joined |
-| Microphone error | allow the microphone in the address bar; only `localhost`/HTTPS pages may use it |
-| Wrong microphone (e.g. the webcam mic) | choose it in the **Microphone** list (sidebar, or under the chat while talking) — it switches live; an unplugged device falls back to the default |
-| "Vision unavailable" | camera permission / another app using the camera / model download failed (`uv run python -m extrahorizon.vision.model_fetch`) — chat and voice keep working |
-| Expression stays *Unknown* | one face, well lit, facing the screen, not too far away |
-| Reads *Angry* / *Unimpressed* while you are relaxed | **Recalibrate** with a relaxed face (it learns *your* neutral); **Calm** needs clearer expressions |
-| A clear expression stays *Neutral* | was the face relaxed during calibration? **Recalibrate**; **Expressive** reacts to subtler expressions |
-| Stuck on *Calibrating…* | look at the screen with a relaxed face and stay quiet ~3 s (talking and a turned head are skipped) |
-| Port 8765 busy | an old backend is still running — stop it (`Get-NetTCPConnection -LocalPort 8765`) |
-| "UI is not built yet" page | `cd frontend && npm run build`, restart the backend |
-| Analysis: a layer "could not be read" / a note about a copy | the county's service did not answer; its last good copy is used and labelled, or the layer is left out and she says so — try **Read the county's data again** later |
-| Analysis map has no streets | the browser cannot reach `tile.openstreetmap.org` (network or firewall); the projects and overlaps still draw |
 
 ## AI assistance
 
