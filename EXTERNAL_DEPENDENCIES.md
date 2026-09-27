@@ -34,6 +34,8 @@ Node.js 24.19.0). Direct dependencies are pinned by `backend/uv.lock` and
 | MediaPipe test portrait; a Windows system voice (SAPI) | test assets generated/downloaded at test time, not committed | locally | — |
 | AzIAIBetter (the author's own earlier project) | design + code reference | — | — |
 | Claude Code (Anthropic, model Claude Opus 5.5) | AI coding assistant used to build the project | development only | the repository contents during development |
+| ChatGPT (OpenAI) | AI assistant the team used for some ideas and implementations | development only | what the team typed into it (outside this repository) |
+| **ExtraHorizon logo** (`docs/brand/logo-original.svg` → `frontend/static/logo.svg`, `favicon.svg`, `favicon-32.png`, `apple-touch-icon.png`, `components/Logo.svelte`) | brand asset provided by the project owner; made with **Recraft AI** (per its Content Credentials) | shipped with the UI as static files — nothing is fetched | — |
 
 Nothing else is contacted at runtime: no analytics of our own, no external fonts or CDNs
 (system fonts only; Leaflet is bundled), no accounts, no cloud storage, no database. Cloudflare is in the path only
@@ -261,6 +263,14 @@ awake only while the demo host runs).
 * **Chart colours and chart rules** — the eight emotion colours are the documented dark categorical steps of the reference palette in Claude Code's bundled *dataviz* skill, with a stacking order chosen by enumerating orderings and validating them with that skill's `validate_palette.js` on this app's chart surface `#0e1629` (lightness band, chroma floor, contrast ≥ 3:1: pass; worst adjacent CVD ΔE 9.4; normal-vision ΔE 19.3); plus its mark/interaction rules (hairline grid, 2 px surface gaps, legend + direct labels, hover crosshair with every series, table view).
 * **Analysis colours** — the two compared plans use blue `#3987e5` and orange `#d95926`, steps of the same *dataviz* reference palette, validated with `validate_palette.js --pairs all` on the map surface `#1b1c1e` (lightness band, chroma floor, contrast ≥ 3:1: pass; CVD ΔE 26.8, normal-vision ΔE 31.8); other plans in recessive gray, overlaps in near-white; the basemap is turned gray so only the data carries hue.
 * **Icons** — Lucide (ISC). **Fonts** — system fonts only.
+* **Logo** — the project owner's "EH" mark with its horizon arc (white on transparent), supplied as an SVG on
+  2026-09-26 and kept unchanged as `docs/brand/logo-original.svg`. Its embedded **C2PA Content Credentials**
+  (issuer recraft.ai) say *"Created by Recraft AI"* and *"Composed in the Recraft editor"* (title "Recraft AI Generated
+  Image"). Derived for the app, colours untouched: `frontend/static/logo.svg` (the mark with the empty margin of the
+  1254×1254 canvas cropped and the 39 KB credentials block left out — they stay with the original),
+  `frontend/static/favicon.svg` and `components/Logo.svelte` (the mark on the app's navy tile `#0b1224`, because a
+  white mark disappears on light tab strips and pages), and `favicon-32.png` / `apple-touch-icon.png` rendered from
+  them with Edge. The README shows the tile.
 
 ## 10. Research references
 
@@ -275,6 +285,9 @@ No data or code from these works is used beyond the models listed in §4.
 
 * **Claude Code** (Anthropic's agentic coding tool, desktop app) running **Claude Opus 5.5** (`claude-opus-5-5`) designed and wrote the backend, frontend, tests, scripts, documentation and the project skills in `.claude/skills/`, following the team's implementation brief (`ExtraHorizon_ShellHacks_Implementation_Prompt.md`) and the owner's follow-up requirements (emotion recognition and visualisation, Fish Audio voice with emotion cues, the tsundere persona, real-time voice with interruptions and fillers; then per-person emotion calibration, microphone selection and the persona's video-call behaviour; then styled select boxes and the remote demo through Cloudflare Tunnel with an access key; then the utility-coordination analysis from the hackathon challenge text the owner supplied — compare at least two utilities' public future construction plans, flag overlaps in space or time, verify everything, explain it in the dialogue and show it visually). It ran the tests, the model and provider measurements, the browser checks and the live voice probes reported here. To reproduce a false "angry" reading, it analysed two screenshots of the camera panel that the owner shared in the chat, with the local models only; the images and crops are not part of the repository.
 * Independent Claude sub-agents performed read-only code reviews; confirmed findings were fixed and re-tested.
+* **ChatGPT** (OpenAI) was used by the team for some of the ideas and implementations (outside this repository; no
+  ChatGPT output is fetched or called by the app).
+* The **logo** was made with **Recraft AI** (per the Content Credentials of the original file, see §9).
 * Claude Code skills used during development: *dataviz* (palette + validator + chart rules), *skill-creator* (format of the project skills).
 * At runtime the answers are generated by OpenAI (§2) and voiced by Fish Audio (§3); no Anthropic model is called by the app.
 * The human team (repository owner) provided the brief, the reference project, the API keys and the voice choice, and is responsible for the live camera/microphone rehearsal (docs/TEST_MATRIX.md lists what was and was not tested by the agent).

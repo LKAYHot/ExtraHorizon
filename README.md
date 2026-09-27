@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/static/favicon.svg" width="128" height="128" alt="ExtraHorizon logo">
+</p>
+
 # ExtraHorizon — Rika, an emotion-aware voice tutor you can actually talk to
 
 ExtraHorizon is an AI tutor you **talk to** — hands-free, like a call. **Rika** (a tsundere
@@ -145,10 +149,11 @@ typed chat ─POST /api/chat (SSE)──────────▶   splitter �
 | `backend/extrahorizon/coord/` | the utility-coordination analysis: sources, ArcGIS client, verification, overlaps, county cross-check, fact sheet + grounding check |
 | `frontend/src/lib/components/AnalysisPanel.svelte` · `Coord*.svelte` | the analysis panel: map (Leaflet), findings, schedules, sources & checks |
 | `backend/extrahorizon/hub/` | the hackathon hub: error signature + scrubbing, public sources (Stack Exchange, GitHub, npm, PyPI, DEV), verification, board, matching, ship plan, fact sheet |
-| `frontend/src/lib/hub.svelte.js` · `components/Hub*.svelte` | the hub panel: get unstuck, people, help board, ship |
+| `frontend/src/lib/hub.svelte.js` · `components/Hub*.svelte` · `DateTimePicker.svelte` | the hub panel: get unstuck, people, help board, ship (the deadline picker) |
 | `backend/extrahorizon/sessions.py` · `app.py` · `vision_ws.py` | sessions/turns/reset · HTTP/SSE/routes · camera socket |
 | `frontend/src/lib/` | app store, voice controller + audio (mic worklet with device choice, player), camera controller, components |
 | `backend/scripts/` | `demo_check.py` (live chain against the running app), `vision_probe.py` (webcam check), `make_fake_camera.py` / `make_fake_mic.py` (test clips) |
+| `docs/brand/` · `frontend/static/` · `components/Logo.svelte` | the logo: the original file (with its Content Credentials) · the mark, the favicon tile and the PNG icons derived from it · the in-app icon |
 | `.claude/skills/` | Claude Code skills for running, testing, rehearsing, tuning and the architecture contract |
 
 ## Privacy — what goes where (the same text is in the app)
@@ -225,6 +230,18 @@ for the remote demo `EH_PUBLIC_URL`, `EH_ACCESS_KEY`, `EH_REMOTE_MAX_FPS`, and f
 | "UI is not built yet" page | `cd frontend && npm run build`, restart the backend |
 | Analysis: a layer "could not be read" / a note about a copy | the county's service did not answer; its last good copy is used and labelled, or the layer is left out and she says so — try **Read the county's data again** later |
 | Analysis map has no streets | the browser cannot reach `tile.openstreetmap.org` (network or firewall); the projects and overlaps still draw |
+
+## AI assistance
+
+ExtraHorizon was built with the help of AI tools:
+
+* **Claude Code** (Anthropic) — used as the coding assistant.
+* **ChatGPT** (OpenAI) — used for some of the ideas and implementations.
+* The **logo** was made with **Recraft AI** (per the Content Credentials in the original file,
+  [docs/brand/logo-original.svg](docs/brand/logo-original.svg)).
+
+Which models, and what each tool was used for: [EXTERNAL_DEPENDENCIES.md §11](EXTERNAL_DEPENDENCIES.md#11-ai-assistance-used-to-build-extrahorizon).
+At runtime the app itself calls only the services listed under *Privacy* above.
 
 ## License
 
