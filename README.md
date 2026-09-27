@@ -83,8 +83,6 @@ ExtraHorizon was built with the help of AI tools:
 
 * **Claude Code** (Anthropic) — used as the coding assistant.
 * **ChatGPT** (OpenAI) — used for some of the ideas and implementations.
-* The **logo** was made with **Recraft AI** (per the Content Credentials in the original file,
-  [docs/brand/logo-original.svg](docs/brand/logo-original.svg)).
 
 Which models, and what each tool was used for: [EXTERNAL_DEPENDENCIES.md §11](EXTERNAL_DEPENDENCIES.md#11-ai-assistance-used-to-build-extrahorizon).
 At runtime the app itself calls only the services listed under *Privacy* above.
